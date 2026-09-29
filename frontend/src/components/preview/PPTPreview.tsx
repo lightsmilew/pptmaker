@@ -190,7 +190,7 @@ export function PPTPreview({ page, className, showPreviewImage = true }: PPTPrev
                     : 'bg-gray-100 text-gray-600'
                 )}
               >
-                {issue.description.slice(0, 20)}
+                {(issue.description || '').slice(0, 20)}
               </span>
             ))}
             {page.review.issues.length > 3 && (

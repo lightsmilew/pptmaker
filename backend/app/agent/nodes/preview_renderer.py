@@ -23,7 +23,7 @@ def render_preview(
     iteration: int = 1,
     spec: Optional[Dict[str, Any]] = None,
     *,
-    dpi: int = 150,
+    dpi: int = 120,
 ) -> str:
     """
     Render a page as a PNG using matplotlib, faithfully reproducing the
@@ -49,6 +49,14 @@ def render_preview(
     import matplotlib.pyplot as plt
     import matplotlib.patches as mpatches
     from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+    # DEBUG: log the layout we received (truncated for readability)
+    _debug_placeholders = (layout_json or {}).get("placeholders", [])
+    _debug_types = [p.get("type") for p in _debug_placeholders]
+    _debug_names = [p.get("name") for p in _debug_placeholders]
+    print(f"[preview_renderer DEBUG] page_id={page_id}")
+    print(f"  placeholders types: {_debug_types}")
+    print(f"  placeholders names: {_debug_names}")
 
     # --- Canvas geometry ------------------------------------------------
     CANVAS_W_INCH = 13.333   # standard 16:9 slide
@@ -109,27 +117,21 @@ def render_preview(
     # Accent uses master value (no template override for accent)
     accent_clr = _rgb("accent", [60, 120, 180])
 
-    # Fonts: always use master_json defaults (typically Microsoft YaHei) so
-    # Chinese characters render correctly.  Do NOT apply template font overrides —
-    # some templates use Arial/Calibri/Inter which lack CJK glyphs.
-    title_font = font_scheme.get("title_font", "Microsoft YaHei")
-    body_font  = font_scheme.get("body_font",  "Microsoft YaHei")
+    # Use a CJK-capable font in the raster preview. Template fonts such as
+    # Arial, Calibri, and Inter do not contain Chinese glyphs on Windows.
+    # PPTX export applies the same safe font for Chinese text.
+    title_font = "Microsoft YaHei"
+    body_font = "Microsoft YaHei"
 
     title_size = float(font_scheme.get("title_size", 28))
     body_size  = float(font_scheme.get("body_size",  18))
 
-    # --- Background ------------------------------------------------------
+    # --- Background and theme rule (same as PPTXGenerator) --------------
     fig.patch.set_facecolor([c / 255 for c in bg_rgb])
     ax.set_facecolor([c / 255 for c in bg_rgb])
-
-    # --- Left accent bar (mirrors PPTXGenerator accent strip) ------------
-    bar_color = _parse_hex(template.get("primary", "#6366F1"), [99, 102, 241])
-    rect = mpatches.Rectangle(
-        (0.0, 0.0), 0.12, CANVAS_H_INCH,
-        linewidth=0, facecolor=[c / 255 for c in bar_color],
-        zorder=1,
-    )
-    ax.add_patch(rect)
+    ax.add_patch(mpatches.Rectangle((0, 0), 0.12, CANVAS_H_INCH,
+                                    linewidth=0, facecolor=[c / 255 for c in title_clr],
+                                    zorder=0))
 
     # --- Collect all text lines to render --------------------------------
     key_points  = page_data.get("key_points")   or []
@@ -137,21 +139,23 @@ def render_preview(
     chart_data  = page_data.get("chart_data")
     table_data  = page_data.get("table_data")
 
-    # Flatten all content into bullet lines
-    all_lines: List[str] = []
-    for kp in key_points:
-        if kp and str(kp).strip():
-            all_lines.append(str(kp))
-    for bp in bullet_pts:
-        if bp and str(bp).strip():
-            all_lines.append("  " + str(bp))
+    # Match PPTXGenerator: key_points take precedence over bullet_points.
+    source_points = key_points or bullet_pts
+    all_lines: List[str] = [str(item).strip() for item in source_points
+                            if item and str(item).strip()]
 
     title_str = page_data.get("title",  "")
     subtitle_str = page_data.get("subtitle", "")
 
     # --- Placeholder layout ---------------------------------------------
-    layouts   = layout_json.get("layouts", []) if layout_json else []
-    layout   = layouts[0] if layouts else {"placeholders": []}
+    # Designer stores a single layout object on PageState, while the export
+    # path promotes it to {"layouts": [layout]}. Accept both forms so the
+    # preview always uses the same placeholder coordinates as the PPTX.
+    if layout_json and layout_json.get("placeholders"):
+        layout = layout_json
+    else:
+        layouts = layout_json.get("layouts", []) if layout_json else []
+        layout = layouts[0] if layouts else {"placeholders": []}
     placeholders = layout.get("placeholders", [])
 
     # Build (content_index)-grouped text columns.
@@ -357,8 +361,6 @@ def render_preview(
     fig.savefig(
         str(preview_path),
         dpi=dpi,
-        bbox_inches="tight",
-        pad_inches=0,
         format="png",
         facecolor=fig.get_facecolor(),
     )

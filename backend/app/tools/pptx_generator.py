@@ -236,7 +236,7 @@ class PPTXGenerator:
                             cell = table.cell(row_index, col_index)
                             cell.text = str(value)
                             for paragraph in cell.text_frame.paragraphs:
-                                paragraph.font.name = fonts.get("body_font", "Microsoft YaHei")
+                                paragraph.font.name = "Microsoft YaHei"
                                 paragraph.font.size = Pt(max(14, min(float(fonts.get("body_size", 18)), 20)))
                     rendered_body = True
                     continue
@@ -261,7 +261,9 @@ class PPTXGenerator:
             for line_index, line in enumerate(value.split("\n")):
                 p = tf.paragraphs[0] if line_index == 0 else tf.add_paragraph()
                 p.text = line
-                p.font.name = fonts.get("title_font" if kind == "title" else "body_font", "Microsoft YaHei")
+                # Keep Chinese glyphs available regardless of the selected
+                # Latin-oriented template font.
+                p.font.name = "Microsoft YaHei"
                 size = float(fonts.get("title_size" if kind == "title" else "body_size", 28 if kind == "title" else 18))
                 p.font.size = Pt(max(24 if kind == "title" else 16, min(size, 44 if kind == "title" else 24)))
                 p.font.bold = kind == "title"
