@@ -112,7 +112,7 @@ class TestGraphRouting:
         assert result == "revise_layout"
 
     def test_route_page_review_max_iterations(self, sample_spec):
-        """Route returns approve when max iterations reached."""
+        """Unresolved layout problems do not become approved at the retry limit."""
         state = create_initial_state(
             project_id="test-001",
             spec=sample_spec,
@@ -128,7 +128,7 @@ class TestGraphRouting:
         state["critic_iteration"] = 5  # Exceeds max of 4
 
         result = route_page_review(state)
-        assert result == "approve"
+        assert result == "failed"
 
     def test_route_after_finalize_more_pages(self, sample_spec):
         """Route returns next_page when more pages exist."""

@@ -1,314 +1,142 @@
-# PPTMaker 部署教程
+# Folio 部署与数据维护
 
-本教程介绍如何将 PPTMaker 部署到生产环境。
+更新：2026-10-07。Folio 由 React 静态前端和 FastAPI 后端组成。当前适合个人 / 受控工作空间使用，生成队列、连接和活跃项目缓存仍在进程内，因此使用 **一个后端 worker**。
 
-## 目录
+## 1. 本地开发
 
-- [环境要求](#环境要求)
-- [构建项目](#构建项目)
-- [本地部署](#本地部署)
-- [服务器部署](#服务器部署)
-- [Docker 部署](#docker-部署)
-- [Nginx 配置](#nginx-配置)
-- [常见问题](#常见问题)
-
-## 环境要求
-
-- Node.js >= 18.0.0
-- Python >= 3.10
-- npm 或 yarn
-- pip
-
-## 构建项目
-
-### Windows
+在仓库的 `backend` 中安装 `python -m pip install -e ".[dev]"`，首次复制 `.env.example` 到 `.env` 并配置模型。已有 `.env` 不要覆盖。
 
 ```powershell
-cd PPTMaker
-scripts\build.bat
+# backend 终端
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+# frontend 终端
+npm ci
+npm run dev -- --host 127.0.0.1
 ```
 
-### Linux/Mac
+访问 http://127.0.0.1:5173 。前端开发代理覆盖 `/api`、`/ws`、`/storage`。后端 `http://127.0.0.1:8000/` 是服务信息 JSON；`/docs` 是接口文档。
 
-```bash
-cd PPTMaker
-chmod +x scripts/build.sh
-./scripts/build.sh
+开发可以使用 `--reload`，但重载会中断制作；重启后历史标为需重试。长时间生成时使用无 reload 的单进程。
+
+## 2. 生产构建与服务
+
+```sh
+cd frontend
+npm ci
+npm run build
+# 将 frontend/dist 交给静态服务器
+cd ../backend
+python -m pip install -e .
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
 ```
 
-构建完成后，静态文件会在 `dist/frontend` 目录，后端代码在 `dist/app`。
+固定后端工作目录为 `backend`，或使用绝对 `STORAGE_PATH` / `FOLIO_DB`。默认数据库在 `backend/storage/pptmaker.sqlite3`；保留旧文件名是为了兼容原历史。指定一个新数据库路径会形成新的工作空间，不会自动复制旧数据库。
 
-## 本地部署
+前端生成包使用同源 `/api`、`/ws`、`/storage` URL；`VITE_BACKEND_HOST` 只改变 Vite 开发代理，不能替代生产反向代理。`vite preview` 只预览前端产物，不作为完整生产部署方案。
 
-### 1. 安装后端依赖
-
-```bash
-cd dist
-pip install -e .
-```
-
-### 2. 配置环境变量
-
-```bash
-cp .env.example .env
-# 编辑 .env 文件，填入你的 API Key
-```
-
-### 3. 启动服务
-
-方式一：直接运行
-```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8000
-```
-
-方式二：使用 Gunicorn (推荐生产环境)
-```bash
-pip install gunicorn
-gunicorn app.main:app --bind 0.0.0.0:8000 --workers 2
-```
-
-### 4. 访问应用
-
-- 前端: http://localhost:8000
-- API 文档: http://localhost:8000/docs
-
-## 服务器部署
-
-### Ubuntu/Debian 示例
-
-#### 1. 安装系统依赖
-
-```bash
-sudo apt update
-sudo apt install -y python3.10 python3-pip nginx certbot
-```
-
-#### 2. 创建服务用户
-
-```bash
-sudo useradd -m -s /bin/false pptmaker
-sudo mkdir -p /opt/pptmaker
-sudo cp -r dist/* /opt/pptmaker/
-sudo chown -R pptmaker:pptmaker /opt/pptmaker
-```
-
-#### 3. 安装 Python 依赖
-
-```bash
-cd /opt/pptmaker
-sudo -u pptmaker pip3 install -e .
-```
-
-#### 4. 配置 Systemd 服务
-
-创建 `/etc/systemd/system/pptmaker.service`:
+Linux 可使用 systemd（路径需按实际部署替换）：
 
 ```ini
 [Unit]
-Description=PPTMaker Service
+Description=Folio Studio API
 After=network.target
 
 [Service]
-User=pptmaker
-Group=pptmaker
-WorkingDirectory=/opt/pptmaker
-Environment="PATH=/opt/pptmaker/venv/bin"
-ExecStart=/opt/pptmaker/venv/bin/gunicorn app.main:app --bind 127.0.0.1:8000 --workers 2
-Restart=always
-RestartSec=5
+User=folio
+WorkingDirectory=/opt/folio/backend
+EnvironmentFile=/opt/folio/backend/.env
+ExecStart=/opt/folio/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
+Restart=on-failure
+RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-#### 5. 启动服务
+服务账号需能写数据库目录和产物目录，但不需要系统管理权限。Windows 可用已有服务管理器运行同样的单 worker 命令，保持固定工作目录。
 
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable pptmaker
-sudo systemctl start pptmaker
-```
+## 3. 静态服务器与反向代理
 
-#### 6. 配置 Nginx
-
-创建 `/etc/nginx/sites-available/pptmaker`:
+示例 Nginx 配置，TLS 证书和访问控制按部署环境配置。所有页面、API、WebSocket、文件路径都应受同一访问控制保护，因为当前实例共享一个本地账号。
 
 ```nginx
 server {
-    listen 80;
-    server_name your-domain.com;
-
-    # 前端静态文件
-    location / {
-        root /opt/pptmaker/frontend;
-        try_files $uri $uri/ /index.html;
-    }
-
-    # API 代理
-    location /api {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_cache_bypass $http_upgrade;
-    }
-
-    # WebSocket 代理
-    location /ws {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_read_timeout 86400;
-    }
-}
-```
-
-启用站点:
-
-```bash
-sudo ln -s /etc/nginx/sites-available/pptmaker /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl reload nginx
-```
-
-#### 7. 配置 HTTPS (可选)
-
-```bash
-sudo certbot --nginx -d your-domain.com
-```
-
-## Docker 部署
-
-### 1. 创建 Dockerfile
-
-在项目根目录创建 `Dockerfile`:
-
-```dockerfile
-FROM python:3.11-slim
-
-WORKDIR /app
-
-# 安装 Node.js
-RUN apt-get update && apt-get install -y curl && \
-    curl -fsSL https://deb.nodesource.com/setup.sh | bash - && \
-    apt-get install -y nodejs
-
-# 复制文件
-COPY . .
-
-# 构建前端
-RUN cd frontend && npm install && npm run build
-
-# 安装 Python 依赖
-RUN pip install -e .
-
-EXPOSE 8000
-
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
-```
-
-### 2. 创建 docker-compose.yml
-
-```yaml
-version: '3.8'
-
-services:
-  pptmaker:
-    build: .
-    ports:
-      - "8000:8000"
-    environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-    restart: unless-stopped
-```
-
-### 3. 启动
-
-```bash
-docker-compose up -d
-```
-
-## Nginx 配置
-
-如果需要将前端构建产物直接嵌入后端，可以配置 Nginx 统一服务:
-
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com;
-    root /opt/pptmaker/frontend;
+    listen 443 ssl;
+    server_name folio.example.com;
+    root /opt/folio/frontend/dist;
     index index.html;
+    client_max_body_size 11m;
 
-    # 静态资源缓存
-    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)$ {
-        expires 1y;
-        add_header Cache-Control "public, immutable";
+    # 在此配置 TLS 和受控访问，例如 auth_basic / 企业网关鉴权。
+    # 不要只保护主页而让 API、WebSocket 和 /storage 公开。
+
+    location / {
+        try_files $uri $uri/ /index.html;
     }
-
-    # API 代理
-    location /api {
+    location /api/ {
         proxy_pass http://127.0.0.1:8000;
         proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
     }
-
-    # WebSocket
-    location /ws {
+    location /ws/ {
         proxy_pass http://127.0.0.1:8000;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
     }
-
-    # SPA 路由
-    location / {
-        try_files $uri $uri/ /index.html;
+    location /storage/ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_read_timeout 300s;
     }
 }
 ```
 
-## 常见问题
+浏览器在 HTTPS 下自动使用 WSS。静态服务器不能把 API 请求回退成 `index.html`；否则页面会收到 HTML 而非 JSON。WebSocket 必须传 Upgrade 头。
 
-### Q: 构建失败，提示缺少模块
+## 4. 本地账号、会员与预算
 
-确保在正确的目录下运行构建脚本，并安装所有依赖。
+```dotenv
+FOLIO_MEMBERSHIP=local
+# plus 为管理员配置的本地 VIP 标记，非付款凭证
+# FOLIO_MEMBERSHIP_EXPIRES_AT=2027-01-01T00:00:00+00:00
+FOLIO_MONTHLY_OUTPUT_LIMIT=0
+PPT_CONCURRENCY=3
+PPT_REVIEW_MODE=local
+```
 
-### Q: 前端显示 404
+这些字段由后端读取，客户端资料 API 不能修改权限。Plus 到期会失去 VIP 标记；当前两档保留本地版基础权益。没有登录注册、密码、邮箱认证、支付或自动续费服务。
 
-检查 Nginx 配置中的 `root` 路径是否正确指向前端构建目录。
+月度输出预算使用 UTC 自然月，0 为不限。并行调用先原子预留各步骤的完整预算，再结算 SDK 返回的实际用量；未完成预留在 30 分钟后释放。重启不会清空使用账本，进程内响应缓存和调用诊断窗口会清空。预算不是服务商余额；配额不足时可由管理员修改预算并重启。
 
-### Q: API 请求跨域错误
+## 5. 数据与备份
 
-确保后端 CORS 配置正确，或通过 Nginx 代理避免跨域。
+需要一起保留数据库、PPTX 与 previews 子目录。数据库包含完整原文与作品、个人资料、Token 用量，产物目录含 PNG 和 PowerPoint。不要把 `.env` 或数据库提交到 Git。
 
-### Q: WebSocket 连接失败
+SQLite 支持在线 backup；运行以下 Python 片段时工作目录为 backend，路径按实际配置设置：
 
-检查 Nginx 是否正确配置了 WebSocket 代理，包括 `Upgrade` 和 `Connection` 头。
+```python
+import sqlite3
+from pathlib import Path
+Path("backups").mkdir(exist_ok=True)
+with sqlite3.connect("storage/pptmaker.sqlite3") as source:
+    with sqlite3.connect("backups/folio.sqlite3") as destination:
+        source.backup(destination)
+```
 
-### Q: 内存占用过高
+另行复制产物目录。还原时停止服务，恢复数据库与对应产物，再启动同一工作目录的服务。归档只是标记，不释放磁盘空间；网页不提供永久删除，避免误删历史。
 
-- 减少 Gunicorn worker 数量
-- 启用 Python 虚拟环境隔离依赖
-- 监控并限制单个请求的资源使用
+## 6. 部署验收与故障定位
 
-## 环境变量
+1. `/health` 返回 healthy，`/docs` 显示 Folio Studio API。
+2. 前端显示 Folio 新 Logo，侧栏可打开工作空间、设置、个人中心。
+3. 资料保存并刷新后保留；会员配置与预算显示正确，不返回密钥。
+4. 创建 4 页演示，WebSocket 正常，完成后 PPTX 可下载，PNG 可读，用量更新。
+5. 重启后旧演示可打开且不会自动重新制作；正在制作的任务变为可重试。
+6. 390px 手机布局无水平溢出，菜单、表单和预览可操作。
 
-| 变量名 | 描述 | 必需 |
-|--------|------|------|
-| OPENAI_API_KEY | OpenAI API Key | 是 |
-| ANTHROPIC_API_KEY | Anthropic API Key | 否 |
-| LOG_LEVEL | 日志级别 (debug/info/warning/error) | 否 |
-| MAX_FILE_SIZE | 最大上传文件大小 (MB) | 否 |
-
-## 监控
-
-推荐使用以下工具监控应用:
-
-- **PM2**: Node.js 进程管理 (用于前端静态文件服务)
-- **Gunicorn**: Python WSGI 服务器
-- **Prometheus + Grafana**: 指标监控
-- **ELK Stack**: 日志收集和分析
+连接失败：确认 `/ws` 代理、Upgrade 头、端口和模型配置；配置变更需重启。下载 404：确认固定 `STORAGE_PATH` 和产物是否被搬走。空历史：检查 `FOLIO_DB` 是否指向原数据库。额度不足：查看预留和输出上限，别通过给浏览器伪造额度解决。多 worker / 多实例可能导致状态与广播不一致，应先增加持久任务队列和跨进程事件，再扩展部署。

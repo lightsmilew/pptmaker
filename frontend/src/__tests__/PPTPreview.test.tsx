@@ -95,7 +95,7 @@ describe('PPTPreview - status badges', () => {
       },
     });
     render(<PPTPreview page={page} showPreviewImage={false} />);
-    const badge = screen.getByText('90分');
+    const badge = screen.getByText('检查结果 90');
     expect(badge).toBeInTheDocument();
     expect(badge.className).toContain('bg-green-100');
   });
@@ -105,7 +105,7 @@ describe('PPTPreview - status badges', () => {
       review: { status: 'needs_revision', score: 75, issues: [], suggestions: [] },
     });
     render(<PPTPreview page={page} showPreviewImage={false} />);
-    const badge = screen.getByText('75分');
+    const badge = screen.getByText('检查结果 75');
     expect(badge.className).toContain('bg-yellow-100');
   });
 
@@ -114,7 +114,7 @@ describe('PPTPreview - status badges', () => {
       review: { status: 'blocked', score: 50, issues: [], suggestions: [] },
     });
     render(<PPTPreview page={page} showPreviewImage={false} />);
-    const badge = screen.getByText('50分');
+    const badge = screen.getByText('检查结果 50');
     expect(badge.className).toContain('bg-red-100');
   });
 
@@ -396,7 +396,7 @@ describe('SlideThumbnail', () => {
       review: { status: 'approved', score: 88, issues: [], suggestions: [] },
     });
     render(<SlideThumbnail page={page} />);
-    expect(screen.getByText('88')).toBeInTheDocument();
+    expect(screen.getByText('检查结果 88')).toBeInTheDocument();
   });
 });
 

@@ -116,7 +116,7 @@ class TestHealthAndRoot:
     def test_root(self, client):
         response = client.get("/")
         assert response.status_code == 200
-        assert response.json()["name"] == "PPTMaker Agent"
+        assert response.json()["name"] == "Folio Studio"
 
     def test_health(self, client):
         response = client.get("/health")

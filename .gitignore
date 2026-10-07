@@ -25,6 +25,8 @@ node_modules/
 
 # Storage
 storage/
+!backend/app/storage/
+!backend/app/storage/*.py
 
 # IDE
 .vscode/

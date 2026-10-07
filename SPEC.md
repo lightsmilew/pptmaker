@@ -1,514 +1,110 @@
-# PPT-Making Agent 系统规格说明书
-
-## 1. 概念与愿景
-
-一个智能化的 PPT 生成助手，通过多 Agent 协作和结构化工作流，将用户的自然语言需求转化为精美的演示文稿。系统采用**规划-分解-执行-校验-修正**的 Agent 范式，确保每一页内容精准、版式美观、全局一致。
-
-核心体验：**输入即所得**——用户只需描述需求，系统自动完成从大纲规划到最终文件交付的全部流程，支持迭代修改和增量更新。
-
----
-
-## 2. 设计语言
-
-### 2.1 美学方向
-**极简科技风**——以深色主题为基底，配合渐变蓝紫色调，营造专业、智能的工具感。界面元素采用毛玻璃效果，层次分明。
-
-### 2.2 配色方案
-```
-主色调 (Primary):     #6366F1 (Indigo-500)
-次要色 (Secondary):   #8B5CF6 (Violet-500)
-强调色 (Accent):      #06B6D4 (Cyan-500)
-成功色 (Success):     #10B981 (Emerald-500)
-警告色 (Warning):     #F59E0B (Amber-500)
-错误色 (Error):       #EF4444 (Red-500)
-背景色 (Background):  #0F172A (Slate-900)
-次背景 (Surface):     #1E293B (Slate-800)
-边框色 (Border):      #334155 (Slate-700)
-文本主色:             #F1F5F9 (Slate-100)
-文本次色:             #94A3B8 (Slate-400)
-```
-
-### 2.3 字体系统
-- **标题字体**: Inter (700) - 现代无衬线，清晰专业
-- **正文字体**: Inter (400, 500) - 高可读性
-- **代码/数据**: JetBrains Mono - 等宽字体用于技术内容
-- **中文字体**: Noto Sans SC - 支持完整中文显示
-
-### 2.4 空间系统
-- 基础单位: 4px
-- 间距梯度: 4, 8, 12, 16, 24, 32, 48, 64px
-- 圆角: sm(6px), md(8px), lg(12px), xl(16px)
-- 阴影: 轻柔的层叠阴影营造深度感
-
-### 2.5 动效哲学
-- **过渡动画**: 300ms ease-out，流畅但不拖沓
-- **微交互**: 按钮悬停放大 1.02x，背景色渐变
-- **加载状态**: 脉冲动画 + 进度文字描述
-- **状态切换**: 淡入淡出，避免突兀
-
-### 2.6 图标系统
-使用 Lucide React 图标库，保持一致的 24px 尺寸和 1.5px 线宽。
-
----
-
-## 3. 布局与结构
-
-### 3.1 整体布局
-```
-┌─────────────────────────────────────────────────────────────┐
-│  顶部导航栏 (64px)                                           │
-│  Logo | 项目名称 | 状态指示器 | 操作按钮                      │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ┌─────────────────┐  ┌─────────────────────────────────┐  │
-│  │                 │  │                                 │  │
-│  │  左侧边栏       │  │  主内容区                        │  │
-│  │  (280px)       │  │  (flex-1)                       │  │
-│  │                 │  │                                 │  │
-│  │  - 输入区       │  │  - 工作流程可视化                │  │
-│  │  - 项目配置     │  │  - PPT 预览                      │  │
-│  │  - 页面列表     │  │  - 详情编辑                      │  │
-│  │                 │  │                                 │  │
-│  └─────────────────┘  └─────────────────────────────────┘  │
-│                                                             │
-├─────────────────────────────────────────────────────────────┤
-│  底部状态栏 (32px) - 处理进度 | 错误提示 | 版本信息          │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 3.2 页面结构
-1. **首页/输入页** - 用户输入需求的主入口
-2. **规划页** - 显示生成的大纲，可编辑调整
-3. **编辑页** - 逐页查看和修改 PPT 内容
-4. **预览页** - 最终 PPT 预览和导出
-
-### 3.3 响应式策略
-- 桌面端 (≥1280px): 完整三栏布局
-- 平板端 (768-1279px): 双栏布局，侧边栏可折叠
-- 移动端 (<768px): 单栏堆叠，底部导航
-
----
-
-## 4. 功能与交互
-
-### 4.1 核心功能流程
-
-#### 4.1.1 需求输入
-- **方式**: 多行文本输入，支持粘贴 Markdown 大纲
-- **快捷键**: Ctrl+Enter 开始生成
-- **示例提示**: 点击可插入示例需求
-- **文件上传**: 支持拖拽上传 PDF/Word/旧 PPT 文件
-- **实时解析**: 显示识别出的关键信息（主题、页数、风格）
-
-#### 4.1.2 智能规划
-- **自动解析**: 识别用户意图，提取主题、受众、页数等
-- **大纲生成**: 生成结构化页面列表
-- **可编辑**: 点击大纲项可直接修改
-- **拖拽排序**: 页面可拖拽调整顺序
-- **增减页面**: 支持插入新页面或删除现有页面
-
-#### 4.1.3 逐页生成
-- **循环生成**: 页面逐个生成，非一次性输出
-- **实时预览**: 生成完成的页面可立即预览
-- **状态显示**: 当前生成页面、进度百分比
-- **中止功能**: 可随时中止生成过程
-
-#### 4.1.4 内容编辑
-- **选中编辑**: 点击页面卡片进入编辑模式
-- **双栏编辑**: 左侧内容编辑，右侧预览
-- **内容校验**: 自动检查要点数量、文字长度
-- **版式切换**: 一键更换页面版式模板
-
-#### 4.1.5 导出交付
-- **格式选择**: 仅支持 .pptx 导出
-- **自定义文件名**: 默认使用主题名
-- **下载按钮**: 一键下载到本地
-- **预览新窗口**: 在新窗口打开完整预览
-
-### 4.2 交互细节
-
-#### 输入框
-- placeholder 显示示例提示
-- focus 时边框变为主色调
-- 实时字数统计
-- 支持 Ctrl+V 粘贴多行内容
-
-#### 按钮
-- hover: 背景色加深，scale 1.02
-- active: scale 0.98
-- disabled: 透明度 50%，cursor not-allowed
-- loading: 显示旋转图标 + 文字
-
-#### 页面卡片
-- hover: 边框变亮，显示操作按钮
-- selected: 主色调边框，背景微亮
-- 拖拽时: 阴影加深，透明度 0.8
-
-#### 进度条
-- 分段显示: 解析 → 规划 → 生成 → 导出
-- 当前步骤高亮，已完成步骤打勾
-- 显示预估剩余时间
-
-### 4.3 错误处理
-
-| 场景 | 处理方式 |
-|------|---------|
-| API 调用失败 | 显示重试按钮，保留输入内容 |
-| 文件解析失败 | 提示支持格式，提供手动输入选项 |
-| 页数超出限制 | 提示最大页数，建议精简内容 |
-| 网络中断 | 自动保存状态，断点续传 |
-
-### 4.4 空状态设计
-- 首页: 显示引导动画 + 示例卡片
-- 页面列表: "还没有页面，点击上方按钮添加"
-- 预览区: "选择或生成页面后在此预览"
-
----
-
-## 5. 组件清单
-
-### 5.1 导航组件
-| 组件 | 状态 | 说明 |
-|------|------|------|
-| NavBar | default, scrolled | 顶部导航栏，滚动后添加阴影 |
-| StepIndicator | step 0-3, active, completed | 工作流程步骤指示器 |
-| TabNav | active, hover | 标签页导航 |
-
-### 5.2 输入组件
-| 组件 | 状态 | 说明 |
-|------|------|------|
-| TextArea | default, focus, error, disabled | 多行文本输入 |
-| FileUpload | empty, hover, uploading, success, error | 文件拖拽上传区 |
-| Select | default, open, selected | 下拉选择器 |
-| Switch | on, off, disabled | 开关切换 |
-| NumberInput | default, focus, error | 数字输入框 |
-
-### 5.3 显示组件
-| 组件 | 状态 | 说明 |
-|------|------|------|
-| PageCard | default, hover, selected, editing | 页面卡片 |
-| OutlineItem | default, hover, editing | 大纲条目 |
-| Badge | info, success, warning, error | 状态徽章 |
-| ProgressBar | determinate, indeterminate | 进度条 |
-| Toast | info, success, warning, error | 提示消息 |
-
-### 5.4 反馈组件
-| 组件 | 状态 | 说明 |
-|------|------|------|
-| Button | default, hover, active, loading, disabled | 按钮 |
-| IconButton | default, hover, active, disabled | 图标按钮 |
-| Tooltip | top, bottom, left, right | 提示气泡 |
-| Modal | open, closing | 模态框 |
-| Skeleton | animated | 骨架屏 |
-
----
-
-## 6. 技术架构
-
-### 6.1 技术栈
-
-#### 后端 (Agent Core)
-- **运行时**: Python 3.10+
-- **Agent 框架**: LangGraph
-- **大模型**: OpenAI GPT-4 / Claude 3.5 (可配置)
-- **PPT 生成**: python-pptx
-- **文档解析**: PyPDF2, python-docx
-- **HTTP 服务**: FastAPI
-- **异步任务**: asyncio + aiofiles
-
-#### 前端 (UI Client)
-- **框架**: React 18 + TypeScript
-- **构建工具**: Vite
-- **UI 组件**: shadcn/ui (基于 Radix)
-- **样式**: Tailwind CSS
-- **状态管理**: Zustand
-- **HTTP 客户端**: fetch API
-- **图标**: Lucide React
-
-### 6.2 系统架构图
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         前端客户端 (React)                        │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐             │
-│  │  输入面板   │  │  预览面板   │  │  编辑面板   │             │
-│  └─────────────┘  └─────────────┘  └─────────────┘             │
-└────────────────────────────┬────────────────────────────────────┘
-                             │ HTTP/WebSocket
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                       后端服务 (FastAPI)                          │
-│  ┌─────────────────────────────────────────────────────────┐     │
-│  │                   LangGraph State Machine                │     │
-│  │  ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────┐  │     │
-│  │  │ Planner │───▶│ Writer  │───▶│Designer │───▶│Critic│  │     │
-│  │  │  Node   │    │  Node   │    │  Node   │    │Node │  │     │
-│  │  └─────────┘    └─────────┘    └─────────┘    └─────┘  │     │
-│  │       │                              │            │     │     │
-│  │       └──────────────────────────────┴────────────┘     │     │
-│  │                     (状态流转)                            │     │
-│  └─────────────────────────────────────────────────────────┘     │
-│                              │                                   │
-│  ┌────────────────────────────┴────────────────────────────┐     │
-│  │                      工具能力集                          │     │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────┐ │     │
-│  │  │文档解析器│  │PPT渲染器 │  │图表生成器│  │素材检索│ │     │
-│  │  └──────────┘  └──────────┘  └──────────┘  └────────┘ │     │
-│  └─────────────────────────────────────────────────────────┘     │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### 6.3 LangGraph 状态机设计
-
-#### State 结构
-```python
-class PPTProjectState(TypedDict):
-    # 项目规格
-    spec: PPTProjectSpec
-    
-    # 全局状态
-    status: str  # idle, parsing, planning, generating, editing, exporting
-    current_step: str
-    error: Optional[str]
-    
-    # 页面数据
-    pages: List[PageData]
-    current_page_index: int
-    
-    # 记忆存储
-    memory: ProjectMemory
-    user_preferences: UserPreferences
-```
-
-#### 节点定义
-```python
-nodes = {
-    "parse_input": 解析用户输入,
-    "plan_outline": 生成大纲规划,
-    "generate_page": 逐页生成内容,
-    "design_layout": 设计页面版式,
-    "critic_review": 评审校验,
-    "render_pptx": 渲染最终文件,
-    "handle_error": 错误处理
-}
-
-edges = {
-    START: "parse_input",
-    "parse_input": {"success": "plan_outline", "failure": "handle_error"},
-    "plan_outline": {"success": "generate_page", "failure": "handle_error"},
-    "generate_page": {"success": "design_layout", "failure": "handle_error"},
-    "design_layout": {"success": "critic_review", "failure": "handle_error"},
-    "critic_review": {"retry": "generate_page", "approve": END},
-    "handle_error": {"retry": LAST_NODE, "abort": END}
-}
-```
-
-### 6.4 API 设计
-
-#### REST Endpoints
-```
-POST   /api/v1/projects              创建新项目
-GET    /api/v1/projects/{id}         获取项目详情
-PUT    /api/v1/projects/{id}         更新项目
-DELETE /api/v1/projects/{id}         删除项目
-
-POST   /api/v1/projects/{id}/parse   解析输入
-POST   /api/v1/projects/{id}/plan   生成规划
-POST   /api/v1/projects/{id}/generate/{page_id}  生成单页
-POST   /api/v1/projects/{id}/render  渲染导出
-
-GET    /api/v1/projects/{id}/pages   获取页面列表
-PUT    /api/v1/projects/{id}/pages/{page_id}  更新页面
-DELETE /api/v1/projects/{id}/pages/{page_id}  删除页面
-
-GET    /api/v1/templates             获取模板列表
-GET    /api/v1/templates/{id}        获取模板详情
-```
-
-#### WebSocket Events
-```
-ws://server/ws/{project_id}
-
-Events:
-- status_update: {"step": "generating", "progress": 45, "message": "正在生成第3页..."}
-- page_generated: {"page_id": 3, "preview_url": "..."}
-- error: {"code": "PARSE_FAILED", "message": "..."}
-- completed: {"download_url": "..."}
-```
-
-### 6.5 数据模型
-
-#### PPTProjectSpec
-```python
-class PPTProjectSpec(BaseModel):
-    topic: str                           # 主题
-    audience: str = "通用"               # 受众
-    page_count: int = 8                  # 目标页数
-    style: str = "商务简约"              # 风格
-    needs_cover: bool = True             # 需封面
-    needs_toc: bool = True               # 需目录
-    needs_summary: bool = True           # 需总结
-    needs_chart: bool = False            # 需图表
-    notes: str = ""                      # 特殊要求
-```
-
-#### PageData
-```python
-class PageData(BaseModel):
-    page_id: int
-    page_type: str                       # cover, toc, content, chart, conclusion, reference
-    title: str
-    subtitle: Optional[str] = ""
-    purpose: str                         # 本页作用
-    
-    # 内容结构
-    key_points: List[str]                # 要点列表
-    bullet_points: List[str]             # 详细要点
-    table_data: Optional[dict] = None    # 表格数据
-    chart_data: Optional[dict] = None     # 图表数据
-    speaker_notes: Optional[str] = ""    # 演讲备注
-    
-    # 版式结构
-    layout: str                           # 布局类型
-    elements: List[LayoutElement]        # 布局元素
-    
-    # 元数据
-    created_at: datetime
-    updated_at: datetime
-    status: str                          # pending, generating, completed, error
-```
-
-#### LayoutElement
-```python
-class LayoutElement(BaseModel):
-    type: str           # title, text, image, chart, table, icon
-    position: tuple    # (x, y) 百分比
-    size: tuple         # (width, height) 百分比
-    style: dict         # 样式配置
-```
-
-### 6.6 项目目录结构
-```
-PPTMaker/
-├── backend/
-│   ├── app/
-│   │   ├── __init__.py
-│   │   ├── main.py                 # FastAPI 入口
-│   │   ├── config.py               # 配置管理
-│   │   ├── api/
-│   │   │   ├── __init__.py
-│   │   │   ├── routes.py           # API 路由
-│   │   │   └── websocket.py        # WebSocket 处理
-│   │   ├── agent/
-│   │   │   ├── __init__.py
-│   │   │   ├── state.py            # 状态定义
-│   │   │   ├── graph.py            # LangGraph 定义
-│   │   │   ├── nodes/
-│   │   │   │   ├── __init__.py
-│   │   │   │   ├── parser.py       # 解析节点
-│   │   │   │   ├── planner.py      # 规划节点
-│   │   │   │   ├── writer.py       # 写作节点
-│   │   │   │   ├── designer.py     # 设计节点
-│   │   │   │   ├── critic.py       # 评审节点
-│   │   │   │   └── renderer.py     # 渲染节点
-│   │   │   └── prompts/
-│   │   │       ├── planner.md
-│   │   │       ├── writer.md
-│   │   │       ├── designer.md
-│   │   │       └── critic.md
-│   │   ├── tools/
-│   │   │   ├── __init__.py
-│   │   │   ├── document_parser.py  # 文档解析工具
-│   │   │   ├── pptx_generator.py   # PPT 生成工具
-│   │   │   ├── chart_generator.py  # 图表生成工具
-│   │   │   └── material_search.py  # 素材检索工具
-│   │   ├── storage/
-│   │   │   ├── __init__.py
-│   │   │   ├── memory.py           # 内存存储
-│   │   │   └── templates.py        # 模板库
-│   │   └── models/
-│   │       ├── __init__.py
-│   │       ├── project.py          # 项目模型
-│   │       └── page.py             # 页面模型
-│   ├── requirements.txt
-│   └── pyproject.toml
-├── frontend/
-│   ├── src/
-│   │   ├── main.tsx
-│   │   ├── App.tsx
-│   │   ├── index.css
-│   │   ├── api/
-│   │   │   └── client.ts          # API 客户端
-│   │   ├── components/
-│   │   │   ├── ui/                # 基础 UI 组件
-│   │   │   ├── layout/            # 布局组件
-│   │   │   ├── input/             # 输入组件
-│   │   │   ├── preview/           # 预览组件
-│   │   │   └── editor/            # 编辑组件
-│   │   ├── hooks/
-│   │   │   ├── useProject.ts
-│   │   │   └── useWebSocket.ts
-│   │   ├── stores/
-│   │   │   └── projectStore.ts    # Zustand store
-│   │   ├── types/
-│   │   │   └── index.ts           # 类型定义
-│   │   └── utils/
-│   │       └── helpers.ts
-│   ├── public/
-│   ├── index.html
-│   ├── package.json
-│   ├── tsconfig.json
-│   ├── vite.config.ts
-│   └── tailwind.config.js
-├── SPEC.md
-└── README.md
-```
-
----
-
-## 7. 实现优先级
-
-### Phase 1: 核心框架 (MVP)
-- [ ] 后端项目结构搭建
-- [ ] LangGraph 状态机实现
-- [ ] 基础 API 路由
-- [ ] 前端项目搭建
-- [ ] 需求输入界面
-- [ ] 单页生成流程
-
-### Phase 2: 完整功能
-- [ ] 多页批量生成
-- [ ] 页面编辑功能
-- [ ] PPT 导出下载
-- [ ] WebSocket 实时更新
-- [ ] 模板系统
-
-### Phase 3: 增强功能
-- [ ] 文档解析支持
-- [ ] 图表生成
-- [ ] 素材检索
-- [ ] 用户偏好记忆
-- [ ] 迭代修改
-
----
-
-## 8. 验收标准
-
-### 功能验收
-- [ ] 用户输入自然语言需求，系统生成对应页数的 PPT 大纲
-- [ ] 点击生成后，逐页显示生成进度
-- [ ] 生成的 PPT 可预览、可编辑、可导出
-- [ ] 修改某一页不影响其他页面
-- [ ] 导出文件为标准 .pptx 格式，可用 PowerPoint 打开
-
-### 性能验收
-- [ ] 单页生成时间 < 10 秒
-- [ ] 8 页 PPT 生成时间 < 60 秒
-- [ ] 前端首屏加载 < 2 秒
-- [ ] API 响应时间 < 500ms
-
-### 体验验收
-- [ ] 界面加载无白屏
-- [ ] 操作反馈 < 100ms
-- [ ] 错误提示明确，用户知道如何解决
-- [ ] 移动端基本可用
+# Folio 产品需求与实现规格
+
+版本：2026-10-07。本文描述当前实现，替代原 PPTMaker 需求分析。技术接口以 [API.md](docs/API.md) 和 FastAPI `/docs` 为准；视觉规则以 [设计系统](docs/DESIGN_SYSTEM.md) 为准。
+
+## 1. 定位与品牌
+
+Folio 意为页册，强调把想法展开成有结构的演示。英文标语：**Let your ideas unfold.** 中文表达：把时间留给内容，把表达交给好设计。
+
+Logo 为三个错落、倾斜的墨绿页形，沿用用户认可的主页标记；正式资源为 `frontend/public/folio-mark.svg`，兼作 favicon，旧图标路径保留兼容。主页浏览器标题为 `Folio — Let your ideas unfold.`；工作空间、设置、账号和项目页使用对应创作文案 / 项目名称。
+
+主要使用场景：汇报、课程、产品介绍、研究报告。输入是用户提供的材料和制作意图，输出是可编辑的 PowerPoint。质量目标是表达清晰、版式一致、有依据的内容；排版检查分数不等于事实核验或审美评分。
+
+## 2. 信息架构
+
+所有页面使用 `StudioShell`。桌面左侧固定导航、上方面包屑、内容区、轻量页脚；小屏使用可关闭的侧栏与遮罩。侧栏底部固定个人中心入口，显示本地称呼和会员名称。
+
+| 路由 | 内容 | 入口 |
+|---|---|---|
+| `/#/home` | 内容输入、导入、页数、主题样张、示例 | 制作工作台 / 新建演示 |
+| `/#/settings` | 基本配置、结构选项、默认偏好保存 | 演示设置 |
+| `/#/workspace` | 历史、收藏、搜索、归档、恢复 | 我的工作空间 |
+| `/#/account` | 资料、会员、用量、账号详情 | 侧栏底部个人中心 |
+| `/#/project/{id}` | 制作状态、页面列表、预览、正文、备注、下载 | 创建完成 / 历史 / 当前演示 |
+
+Hash 导航支持刷新和浏览器返回。切换到设置或个人中心会保留当前草稿与项目连接；显式新建清空输入和导入记录，保留制作设置。打开历史项目先读取完整快照，再连接其 WebSocket；不会自动重新生成已存在的大纲，也不会自动下载旧文件。
+
+## 3. 统一视觉规范
+
+纸白 `#FAF9F6` 为画布，白色为内容表面，浅灰绿 `#F0F1EB` 为侧栏，墨绿 `#29483E` 为主要操作，边框 `#DFE4DA`，正文 `#27342D`。页面保持留白、细边框、紧凑按钮与适度层级，不使用紫色渐变、发光、玻璃效果或大阴影。
+
+标题 26–37px，页面正文 12–13px，辅助说明 10–11px；使用系统字体，无额外远程字体请求。按钮与输入圆角约 5–7px，卡片约 7–10px。风格样张可以采用其真实演示配色，产品导航与表单仍统一使用纸白 / 墨绿。
+
+未来页面须复用公共布局、按钮、输入、卡片、状态与间距规范；细节、断点、可访问性与组件规则见设计系统和根目录 `AGENTS.md`。
+
+## 4. 制作工作台与设置
+
+### 输入与上传
+
+输入主题、目标受众、关键观点、数据或已有大纲；支持 Ctrl+Enter 创建。可多次导入文件，提取文本按文件名追加到输入，移除文件时同步移除其文本。允许 PDF、DOCX、MD、MARKDOWN、TXT；单文件最大 10 MiB。旧式 `.doc` 不支持，损坏文档返回明确错误；扫描 PDF 未提供 OCR。
+
+草稿统一保存在 Zustand 中，切换页面不会丢失。未提交草稿仅在当前浏览器会话内保存；已经创建的项目由后端持久化。
+
+### 演示配置
+
+页数为 1–50 的整数，前后端均校验创建页数。六种主题：商务简约、学术简约、科技风、创意活泼、教育培训、金融专业；旧别名在生成层兼容。
+
+受众可选通用、小学、初中、高中、大学、研究生、企业领导、客户、投资人、技术人员。结构开关包括封面、目录、总结、图表。图表选项表示优先考虑有依据的数据可视化，不允许为凑图编造数值。
+
+本次设置即时进入制作草稿；保存默认值仅持久化风格和页数，启动时读取本地账号偏好。受众和结构开关属于本次会话，不宣称跨重启保存。切换设置后返回不会覆盖已写正文。
+
+主页有三套样张（Editorial / Research / Midnight）和三个真实创建示例，不使用不可点击的装饰入口。
+
+## 5. 演示制作与查看
+
+创建后自动执行整理、规划、逐页制作、检查与导出。独立页面并行，默认 3 页，上限 8；WebSocket 命令顺序排队，节点在线程中运行，连接可响应 ping。
+
+制作页包括项目标题 / 风格 / 受众 / 页数、状态标签、紧凑四步进度、逐页列表、16:9 画布、上一页 / 下一页。预览、页面内容、演讲备注使用轻量切换按钮，只有选中页挂载完整预览。未生成时显示明确等待状态。
+
+完成后自动下载新项目，并保留下载按钮。历史项目有有效文件时直接下载；文件丢失、状态未完成或内容被修改时，不返回失效下载链接。需要重试或重新导出时由用户明确触发，不因打开页面产生额外调用。
+
+浏览器内目前提供查看与下载；完整内容编辑在 PowerPoint 中完成。底层保留 `update_page` 和 `update_spec` 协议供后续编辑功能接入，尚无完整浏览器编辑器。
+
+## 6. 我的工作空间
+
+展示真实历史数据，无伪造样例占位。顶部统计未归档演示、完成、收藏、已完成页面；后端还提供进行中、归档数量与导出文件总大小。
+
+演示卡片展示封面预览或文字占位、标题、页数、风格、受众、标签、状态、最近更新时间。功能包括：
+
+- 按标题、受众、风格和标签搜索；输入防抖 250ms。
+- 筛选全部、收藏、已完成、进行中、需重试、已归档；“进行中”包含未完成草稿和正在制作的项目。
+- 最近更新、最近创建、标题排序；每页 12 条，后端最多 50 条。
+- 打开 / 继续制作、下载有效 PPTX、收藏与取消收藏。
+- 重命名历史标题，编辑最多 8 个标签；标题最多 120 字，每标签最多 24 字并去重。
+- 软归档与恢复。页面不提供永久删除操作。
+
+重命名修改工作空间中的项目主题，不重写幻灯片内容。归档是元数据操作，不删除导出文件和原文，不取消正在运行的制作。
+
+SQLite 保存完整项目快照（原文、配置、大纲、页面内容、图表/表格、布局、预览与评审）。重启时将未结束的制作标为需重试，材料和页面保留，不自动继续计费。列表只传摘要，正文按需读取。
+
+## 7. 本地个人中心
+
+每个后端实例一个持久本地身份，自动分配 `local_…` 账号 ID。基础信息含称呼、联系邮箱、机构、职业、简介、时区、创建时间。称呼必填 1–40 字，邮箱格式校验；联系邮箱不承担认证功能。头像为称呼首字，无照片上传。
+
+账户详情按需展开：账号 ID、账号类型、创建日期、模型是否配置、模型服务主机名、默认模型、累计调用、结果缓存命中与额外推理输出。API 不返回密钥、原始连接 URL、提示词或模型正文。
+
+会员来自后端环境配置 `local` / `plus`，显示 Local / Plus 名称、VIP 状态、有效期、现有权益、单份 50 页与实际并行上限。VIP 到期会失效，资料 API 不允许修改账号 ID 或会员权限。当前两档均提供本地版基础创作权益；未接入商业订阅、支付或线上认证。
+
+用量展示本月输出 / 输入 Tokens、供应商输入缓存命中率、调用数、成功数、日输出记录与本地额度。底层账本存调用 ID、项目 ID、角色、模型、计数、时间和成功状态，不保存正文和提示词。
+
+按 UTC 自然月统计和重置。`FOLIO_MONTHLY_OUTPUT_LIMIT=0` 表示未设预算；非零预算在发送每次模型请求前原子预留完整输出上限，避免并行超分配，完成后按返回的实际 Token 结算。预留 30 分钟后过期。预算不足会阻断该调用，模型未报告或请求失败时只能记录可获取的计数；这不是服务商账单或余额保证。
+
+## 8. 生成与成本架构
+
+受控工作流：Parser → Planner → 并行 Writer → 本地 Designer → 共享 scene → 本地 Critic → 有限修订 → PPTX。内容复杂时可启用图片复核；备用 LangGraph 入口还含全局语义检查。
+
+JSON 继续作为可校验的数据协议，压缩的是字段与调用数量。Writer 返回配对短标题与解释，默认不生成讲稿；封面、目录、致谢复用大纲。布局、颜色、字体和坐标在本地计算，不逐页让模型输出完整绘图 JSON。
+
+供应商前缀缓存与进程内响应缓存分开统计；后者 10 分钟 TTL、128 条、每条最多 64 KiB，不缓存截断输出。SDK 客户端复用；默认关闭 DeepSeek 普通写作推理。具体研究与预算见优化文档。
+
+## 9. 可编辑导出与质量边界
+
+16:9 画布 13.333 × 7.5 英寸，默认微软雅黑，统一文字测量与显式换行。PNG 为 1600×900；PPTX 使用可编辑文本、形状、原生图表和表格。支持单 / 双 / 三栏、封面、目录、图表、表格与结束页。
+
+本地检查涵盖边界、溢出、重叠、对比度与密度。图片复核在发送真实图片后给出结果，失败如实返回；不以失败视为通过。没有可用图表数据时改用文字；不声称已完成外部母版导入、OCR、自动事实核验或 Office 逐页渲染对比。
+
+## 10. 运行、验收与后续边界
+
+当前采用单 worker FastAPI、SQLite、磁盘产物、React / TypeScript / Vite。前端由 Vite 或静态服务器提供；生成任务与连接管理仍在进程内。公开部署前需外部访问控制；多用户、任务队列与多 worker 协同属于后续独立功能。
+
+验收应覆盖共享样式、导航、草稿保留、历史恢复与无自动重生成、资料保存、会员权限与到期、并发额度预留、真实生成及下载、390px 手机无水平溢出。自动回归与手工流程见 [TESTING.md](TESTING.md)。

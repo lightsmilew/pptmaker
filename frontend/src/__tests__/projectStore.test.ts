@@ -90,6 +90,14 @@ beforeEach(() => {
 
 // ================== Initial state ==================
 describe('useProjectStore - initial state', () => {
+  it('switching projects replaces the download URL and isolates queued commands', () => {
+    useProjectStore.setState({ project:createProject(),lastDownloadUrl:'/storage/old.pptx',pendingCommands:[{type:'render_pptx'}] });
+    useProjectStore.getState().setProject(createProject({ id:'proj-history',status:'completed',download_url:'/storage/history.pptx' }));
+    expect(useProjectStore.getState().lastDownloadUrl).toBe('/storage/history.pptx');
+    expect(useProjectStore.getState().pendingCommands).toEqual([]);
+    useProjectStore.getState().setProject(createProject({ id:'proj-draft' }));
+    expect(useProjectStore.getState().lastDownloadUrl).toBeNull();
+  });
   it('starts with empty state and a wired dispatcher', () => {
     const state = useProjectStore.getState();
     expect(state.project).toBeNull();
@@ -432,7 +440,7 @@ describe('useExamples - example projects', () => {
   it('includes technical, product, and education style examples', () => {
     const styles = useExamples().map((e) => e.spec.style);
     expect(styles).toContain('学术简约');
-    expect(styles).toContain('商务正式');
+    expect(styles).toContain('金融专业');
     expect(styles).toContain('教育培训');
   });
 });

@@ -22,14 +22,14 @@ const pageTypeLabels: Record<PageType, string> = {
 };
 
 const pageTypeBadgeColors: Record<PageType, string> = {
-  cover: 'bg-purple-100 text-purple-600',
+  cover: 'bg-[#edf1e8] text-[#52644d]',
   toc: 'bg-blue-100 text-blue-600',
-  content: 'bg-indigo-100 text-indigo-600',
+  content: 'bg-[#edf1e8] text-[#52644d]',
   chart: 'bg-green-100 text-green-600',
   table: 'bg-orange-100 text-orange-600',
   conclusion: 'bg-amber-100 text-amber-600',
   reference: 'bg-gray-100 text-gray-600',
-  thankyou: 'bg-pink-100 text-pink-600',
+  thankyou: 'bg-[#edf1e8] text-[#52644d]',
 };
 
 export function OutlinePreview({ outline, selectedIndex, className }: OutlinePreviewProps) {
@@ -37,12 +37,12 @@ export function OutlinePreview({ outline, selectedIndex, className }: OutlinePre
     return (
       <div
         className={clsx(
-          'flex items-center justify-center bg-gray-50 rounded-3xl shadow-soft-md aspect-video',
+          'flex items-center justify-center bg-gray-50 rounded-lg border border-[#e1e5dc] aspect-video',
           className
         )}
       >
         <div className="text-center p-8">
-          <div className="w-28 h-20 mx-auto mb-5 bg-white rounded-2xl shadow-soft-sm flex items-center justify-center">
+          <div className="w-28 h-20 mx-auto mb-5 bg-white rounded-md border border-[#e1e5dc] flex items-center justify-center">
             <span className="text-5xl text-gray-300">?</span>
           </div>
           <p className="text-gray-500 font-medium">大纲生成后将在此预览</p>
@@ -59,7 +59,7 @@ export function OutlinePreview({ outline, selectedIndex, className }: OutlinePre
   return (
     <div
       className={clsx(
-        'bg-white rounded-3xl shadow-soft-md p-6 aspect-video flex flex-col',
+        'bg-white rounded-lg border border-[#e1e5dc] p-6 aspect-video flex flex-col',
         className
       )}
     >
@@ -96,7 +96,7 @@ export function OutlinePreview({ outline, selectedIndex, className }: OutlinePre
         <div className="mt-2 flex-1 overflow-hidden space-y-2">
           {item.key_points.slice(0, 6).map((point, i) => (
             <div key={i} className="flex items-start gap-2">
-              <span className="flex-shrink-0 w-5 h-5 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center text-xs font-semibold">
+              <span className="flex-shrink-0 w-5 h-5 rounded-lg bg-[#edf1e8] text-[#52644d] flex items-center justify-center text-xs font-semibold">
                 {i + 1}
               </span>
               <span className="text-sm text-gray-600 leading-relaxed">{point}</span>

@@ -18,9 +18,20 @@ class TestMemoryStore:
     """Tests for MemoryStore."""
 
     @pytest.fixture
-    def store(self):
+    def store(self, monkeypatch, tmp_path):
         """Fresh store for each test."""
+        monkeypatch.setenv("PPTMAKER_DB", str(tmp_path / "projects.sqlite3"))
+        monkeypatch.setenv("FOLIO_DB", str(tmp_path / "projects.sqlite3"))
         return MemoryStore()
+
+    def test_interrupted_work_is_retryable_after_restart(self, store):
+        store.create_project("interrupted", {"status":"generating", "user_input":"保留材料", "pages":[{"page_id":"01","status":"completed"}]})
+        store.create_project("finished", {"status":"completed", "pages":[]})
+        assert store.recover_interrupted() == 1
+        restored = MemoryStore().get_project("interrupted")
+        assert restored["status"] == "failed" and restored["user_input"] == "保留材料"
+        assert restored["pages"][0]["status"] == "completed"
+        assert store.get_project("finished")["status"] == "completed"
 
     def test_create_project(self, store):
         """Create a new project."""
@@ -140,7 +151,7 @@ class TestTemplateKnowledgeBase:
         """Get template by name."""
         kb = TemplateKnowledgeBase()
         template = kb.get_template("学术简约")
-        assert template["primary"] == "#2563EB"
+        assert template["primary"] == "#234B70"
 
     def test_get_unknown_template_fallback(self):
         """Unknown template falls back to default."""

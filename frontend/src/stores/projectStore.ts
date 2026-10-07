@@ -44,7 +44,15 @@ function deepMerge<T extends Record<string, any>>(target: T, source: Partial<T>)
 
 export type CommandDispatcher = (cmd: WSCommand) => void;
 
+export interface DraftFile { filename: string; content: string; size: number }
+
 interface ProjectState {
+  draftInput: string;
+  setDraftInput: (value: string | ((previous: string) => string)) => void;
+  draftFiles: DraftFile[];
+  setDraftFiles: (value: DraftFile[] | ((previous: DraftFile[]) => DraftFile[])) => void;
+  draftSpec: PPTProjectSpec;
+  setDraftSpec: (patch: Partial<PPTProjectSpec>) => void;
   project: PPTProject | null;
   isLoading: boolean;
   error: string | null;
@@ -103,6 +111,12 @@ function _send(store: ProjectState, cmd: WSCommand) {
 }
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
+  draftInput: '',
+  setDraftInput: (value) => set(state => ({ draftInput: typeof value === 'function' ? value(state.draftInput) : value })),
+  draftFiles: [],
+  setDraftFiles: (value) => set(state => ({ draftFiles: typeof value === 'function' ? value(state.draftFiles) : value })),
+  draftSpec: { topic: '', page_count: 8, style: '商务简约', audience: '通用', needs_cover: true, needs_toc: true, needs_summary: true, needs_chart: false },
+  setDraftSpec: (patch) => set((state) => ({ draftSpec: { ...state.draftSpec, ...patch } })),
   project: null,
   isLoading: false,
   error: null,
@@ -120,7 +134,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         spec,
         user_input: userInput,
       });
-      set({ project, isLoading: false });
+      set({ project, isLoading: false, parallelStatus: null, lastDownloadUrl: null, pendingCommands: [], sendCommand: null });
       return project.id;
     } catch (err) {
       set({ error: (err as Error).message, isLoading: false });
@@ -130,13 +144,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   // ---------- WebSocket commands ----------
 
-  parseInput: () => _send(get(), { type: 'parse_input' }),
+  parseInput: () => { get().setStatus('parsing', '正在整理内容'); _send(get(), { type: 'parse_input' }); },
 
-  planOutline: () => _send(get(), { type: 'plan_outline' }),
+  planOutline: () => { get().setStatus('planning', '正在规划大纲'); _send(get(), { type: 'plan_outline' }); },
 
   generateParallel: () => {
     const { project } = get();
     if (!project) return;
+    get().setStatus('generating', '开始制作页面', 30);
     const totalPages = project.pages?.length
       || project.outline?.length
       || project.spec?.page_count
@@ -156,7 +171,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     _send(get(), { type: 'generate_parallel' });
   },
 
-  renderPPTX: () => _send(get(), { type: 'render_pptx' }),
+  renderPPTX: () => { get().setStatus('rendering', '正在导出文件'); _send(get(), { type: 'render_pptx' }); },
 
   updateSpec: (patch) => {
     const cmd: WSCommand<UpdateSpecCommand> = {
@@ -186,7 +201,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   // ---------- Setters ----------
 
-  setProject: (project) => set({ project }),
+  setProject: (project) => set(state => ({ project, lastDownloadUrl: project.download_url ?? (state.project?.id === project.id ? state.lastDownloadUrl : null), ...(state.project?.id !== project.id ? { parallelStatus: null, pendingCommands: [], sendCommand: null, error: null } : {}) })),
 
   setStatus: (status, step, progress) => {
     const { project } = get();
@@ -288,6 +303,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const { project } = get();
     if (!project) return;
     const review: ReviewResult = {
+      method: event.method,
       status: event.status,
       score: event.score,
       issues: event.issues,
@@ -330,6 +346,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   clearProject: () => {
     set({
       project: null,
+      isLoading: false,
+      sendCommand: null,
       error: null,
       parallelStatus: null,
       lastDownloadUrl: null,
@@ -369,7 +387,7 @@ export const useExamples = () => {
         topic: '智能助手产品发布会',
         audience: '投资人与客户',
         page_count: 10,
-        style: '商务正式',
+        style: '金融专业',
         needs_cover: true,
         needs_toc: true,
         needs_summary: true,

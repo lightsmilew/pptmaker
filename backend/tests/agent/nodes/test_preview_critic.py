@@ -86,7 +86,7 @@ class TestPreviewRendererNode:
 class TestCriticNode:
     """Tests for critic_node."""
 
-    def test_critic_with_approved_response(self, mock_llm_with_responses, sample_spec):
+    def test_critic_with_approved_response(self, mock_llm_with_responses, sample_spec, tmp_path):
         """Critic approves a page."""
         client = mock_llm_with_responses([{
             "status": "approved",
@@ -111,7 +111,11 @@ class TestCriticNode:
             title="Test",
             key_points=["a", "b"],
         )
-        page.preview = PreviewInfo(image_path="/tmp/preview.png")
+        image = tmp_path / "preview.png"
+        from PIL import Image
+        Image.new("RGB", (16, 9), "white").save(image)
+        page.preview = PreviewInfo(image_path=str(image))
+        state["project"].spec["review_mode"] = "vision"
         state["pages"]["page-01"] = page
         state["current_page_id"] = "page-01"
 
@@ -120,7 +124,7 @@ class TestCriticNode:
         assert page_after.review_status == "approved"
         assert page_after.review_score == 88
 
-    def test_critic_with_needs_revision(self, mock_llm_with_responses, sample_spec):
+    def test_critic_with_needs_revision(self, mock_llm_with_responses, sample_spec, tmp_path):
         """Critic returns needs_revision for low score."""
         client = mock_llm_with_responses([{
             "status": "needs_revision",
@@ -154,7 +158,11 @@ class TestCriticNode:
             title="Test",
             key_points=["a"],
         )
-        page.preview = PreviewInfo(image_path="/tmp/preview.png")
+        image = tmp_path / "preview.png"
+        from PIL import Image
+        Image.new("RGB", (16, 9), "white").save(image)
+        page.preview = PreviewInfo(image_path=str(image))
+        state["project"].spec["review_mode"] = "vision"
         state["pages"]["page-01"] = page
         state["current_page_id"] = "page-01"
 
@@ -206,4 +214,5 @@ class TestReviewPageFunction:
             preview_path="/nonexistent/path.png",
             layout_type="title_content",
         )
-        assert result["status"] == "approved"
+        assert result["status"] == "blocked"
+        assert client.call_count == 0

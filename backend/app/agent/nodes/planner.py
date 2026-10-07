@@ -41,8 +41,6 @@ PLANNER_PROMPT = """你是一个专业的PPT大纲规划师。请根据项目需
         "page_id": "page-01",
         "page_type": "cover|toc|content|chart|table|conclusion|reference|thankyou",
         "page_title": "页面标题（必须与用户输入主题强相关）",
-        "subtitle": "副标题（可选）",
-        "page_purpose": "本页的作用和目的",
         "key_points": ["核心要点1（直接来自用户输入）", "核心要点2"],
         "suggest_layout": "建议的布局类型"
     }},
@@ -65,11 +63,21 @@ PLANNER_PROMPT = """你是一个专业的PPT大纲规划师。请根据项目需
 4. 总结页使用conclusion类型
 5. 内容页使用content类型
 6. 最后一页使用thankyou类型
-7. 每页的key_points应该是大纲性质的，不要写完整句子
-8. 确保页数与要求一致
+7. 每页的key_points应该是大纲性质的，不要写完整句子。目录页列2至8个章节主题
+8. 确保页数与要求一致。subtitle、page_purpose可省略，系统会补齐；不要重复解释字段
 9. 整篇大纲必须紧扣用户原始输入，不要输出与用户主题无关的通用模板
 
 请直接输出JSON，不要其他文字。"""
+
+PLANNER_SYSTEM = """你是严格的 JSON API。你的回复必须满足以下契约：
+1. 回复只能是一个 JSON 数组，首字符必须是 [，末字符必须是 ]。
+2. 严禁输出 Markdown、代码围栏、解释、前后缀文字或 JSON 对象包装。
+3. 数组中的每一项必须是 JSON 对象，禁止字符串、数字或 null。
+4. 每项必须包含且仅使用这些字段：page_id、page_type、page_title、subtitle、page_purpose、key_points、suggest_layout。
+5. page_id 是 page-01 形式的字符串；page_type 必须是 cover、toc、content、chart、table、conclusion、reference、thankyou 之一。
+6. key_points 必须是字符串数组；没有要点时返回 []。
+7. 输出页数必须严格等于用户要求的页数。
+输出前先在内部校验 JSON，校验失败时重新生成；不要输出校验过程。"""
 
 
 def planner_node(state: AgentState) -> AgentState:
@@ -93,7 +101,7 @@ def planner_node(state: AgentState) -> AgentState:
 
     # If notes is empty, fall back to user_input so the planner still has the
     # original requirement as explicit context.
-    notes_value = (spec.get("notes") or "").strip() or user_input
+    notes_value = (spec.get("notes") or "").strip()
 
     files_content = []
     for file_path in uploaded_files:
@@ -122,16 +130,45 @@ def planner_node(state: AgentState) -> AgentState:
     )
 
     try:
-        llm = get_llm_client()
-        response = llm.generate(prompt=prompt, system="", max_tokens=327680)
+        llm = get_llm_client("planner")
+        response = None
+        last_error = ""
+        for attempt in range(2):
+            retry_prompt = prompt if attempt == 0 else (
+                prompt + "\n\n上一轮输出未通过本地格式校验：" + last_error +
+                "。请重新输出完整紧凑JSON数组，不要解释。"
+            )
+            response = llm.generate(prompt=retry_prompt, system=PLANNER_SYSTEM, max_tokens=max(2200, page_count * 240))
+            try:
+                json_text = extract_json_from_text(response)
+                outline_data = json.loads(json_text)
+                if isinstance(outline_data, dict) and isinstance(outline_data.get("pages"), list):
+                    outline_data = outline_data["pages"]
+                if not isinstance(outline_data, list) or not all(isinstance(item, dict) for item in outline_data):
+                    raise ValueError("顶层必须是对象数组")
+                required = ("page_id", "page_type", "page_title", "subtitle", "page_purpose", "key_points", "suggest_layout")
+                for index, item in enumerate(outline_data, 1):
+                    item.setdefault("subtitle", "")
+                    item.setdefault("page_purpose", "")
+                    missing = [key for key in required if key not in item]
+                    if missing: raise ValueError(f"第 {index} 页缺少字段: {', '.join(missing)}")
+                break
+            except Exception as exc:
+                last_error = str(exc)
+        else:
+            raise ValueError(f"大纲格式连续校验失败: {last_error}")
 
-        # Parse outline
-        json_text = extract_json_from_text(response)
-        outline_data = json.loads(json_text)
-
-        # Ensure it's a list
-        if isinstance(outline_data, dict) and "pages" in outline_data:
-            outline_data = outline_data["pages"]
+        if not isinstance(outline_data, list):
+            raise ValueError("大纲响应必须是 JSON 数组")
+        if not all(isinstance(item, dict) for item in outline_data):
+            raise ValueError("大纲数组中的每一项必须是 JSON 对象")
+        required = ("page_id", "page_type", "page_title", "subtitle", "page_purpose", "key_points", "suggest_layout")
+        for index, item in enumerate(outline_data, 1):
+            missing = [key for key in required if key not in item]
+            if missing:
+                raise ValueError(f"第 {index} 页大纲缺少字段: {', '.join(missing)}")
+            if not isinstance(item["key_points"], list) or not all(isinstance(x, str) for x in item["key_points"]):
+                raise ValueError(f"第 {index} 页 key_points 必须是字符串数组")
 
         # Update state
         state["outline"] = outline_data
@@ -205,7 +242,7 @@ def generate_outline(
         "\n\n".join(files_content) if files_content else "无上传文件"
     )
 
-    notes_value = (spec.get("notes") or "").strip() or user_input
+    notes_value = (spec.get("notes") or "").strip()
 
     prompt = PLANNER_PROMPT.format(
         topic=spec.get("topic", "未命名主题"),
@@ -221,13 +258,21 @@ def generate_outline(
         uploaded_files_content=uploaded_files_content,
     )
 
-    llm = get_llm_client()
-    response = llm.generate(prompt=prompt, system="", max_tokens=327680)
+    llm = get_llm_client("planner")
+    response = llm.generate(prompt=prompt, system=PLANNER_SYSTEM, max_tokens=max(2200, page_count * 240))
 
     json_text = extract_json_from_text(response)
     outline_data = json.loads(json_text)
 
-    if isinstance(outline_data, dict) and "pages" in outline_data:
+    if isinstance(outline_data, dict) and isinstance(outline_data.get("pages"), list):
         outline_data = outline_data["pages"]
+    if not isinstance(outline_data, list):
+        raise ValueError("大纲响应必须是 JSON 数组")
+    if not all(isinstance(item, dict) for item in outline_data):
+        raise ValueError("大纲数组中的每一项必须是 JSON 对象")
+
+    for item in outline_data:
+        item.setdefault("subtitle", "")
+        item.setdefault("page_purpose", "")
 
     return outline_data

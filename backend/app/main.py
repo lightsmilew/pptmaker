@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import settings
 from .api.routes import router
+from .api.workspace import router as workspace_router
 from .api.websocket import websocket_handler
 
 
@@ -16,6 +17,8 @@ async def lifespan(app: FastAPI):
     """Application lifespan handler."""
     # Startup
     os.makedirs(settings.storage_path, exist_ok=True)
+    from .storage.memory import memory_store
+    memory_store.recover_interrupted()
     yield
     # Shutdown
     pass
@@ -23,8 +26,8 @@ async def lifespan(app: FastAPI):
 
 # Create FastAPI app
 app = FastAPI(
-    title="PPTMaker Agent API",
-    description="AI-powered PPT generation with multi-agent collaboration",
+    title="Folio Studio API",
+    description="A quiet workspace for ideas, editable presentations, and your creative archive.",
     version="0.1.0",
     lifespan=lifespan,
 )
@@ -44,13 +47,14 @@ app.mount("/storage", StaticFiles(directory=settings.storage_path), name="storag
 
 # Include API routes
 app.include_router(router)
+app.include_router(workspace_router)
 
 
 @app.get("/")
 async def root():
     """Root endpoint."""
     return {
-        "name": "PPTMaker Agent",
+        "name": "Folio Studio",
         "version": "0.1.0",
         "status": "running",
         "docs": "/docs",

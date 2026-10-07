@@ -15,6 +15,22 @@ BACKEND_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND_ROOT))
 
 
+def pytest_configure(config):
+    """Keep test snapshots away from the user's persistent project history."""
+    import uuid
+    directory = BACKEND_ROOT / "storage" / "test-databases"
+    directory.mkdir(parents=True, exist_ok=True)
+    os.environ["PPTMAKER_DB"] = str(directory / f"{uuid.uuid4().hex}.sqlite3")
+    os.environ["FOLIO_DB"] = os.environ["PPTMAKER_DB"]
+    os.environ["FOLIO_MONTHLY_OUTPUT_LIMIT"] = "0"
+    os.environ["FOLIO_MEMBERSHIP"] = "local"
+    os.environ.pop("FOLIO_MEMBERSHIP_EXPIRES_AT", None)
+    temp_root = BACKEND_ROOT / "storage" / "test-runs"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    if not config.option.basetemp:
+        config.option.basetemp = str(temp_root / uuid.uuid4().hex)
+
+
 # ============= Async Event Loop =============
 
 @pytest.fixture(scope="session")

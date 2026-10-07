@@ -1,14 +1,16 @@
-// API Types for PPTMaker
+// API Types for Folio
 //
 // The architecture is now event-driven through a single bidirectional
-// WebSocket. The REST surface is intentionally tiny (project creation,
-// file upload). See WebSocketMessage below for the unified protocol.
+// WebSocket. REST handles creation, history, account and upload.
+// See WebSocketMessage below for the unified workflow protocol.
 
 // ==================== Domain enums ====================
 
 export type ProjectStatus =
   | 'idle'
   | 'parsing'
+  | 'parsed'
+  | 'editing'
   | 'planned'
   | 'planning'
   | 'generating'
@@ -79,6 +81,7 @@ export interface ReviewDimensions {
 }
 
 export interface ReviewResult {
+  method?: 'local_geometry' | 'vision';
   status: ReviewStatus;
   score: number;
   dimensions?: ReviewDimensions;
@@ -139,6 +142,7 @@ export interface PageData {
   };
   preview?: PreviewInfo;
   review?: {
+    method?: 'local_geometry' | 'vision';
     status: ReviewStatus;
     score: number;
     issues: ReviewIssue[];
@@ -208,6 +212,8 @@ export interface PPTProject {
   created_at?: string;
   updated_at?: string;
   page_count?: number;
+  download_url?: string | null;
+  metadata?: { favorite?: boolean; archived?: boolean; tags?: string[] };
 }
 
 export interface OutlineItem {
@@ -288,6 +294,7 @@ export interface ParallelGenerationStatus {
 }
 
 export interface ReviewCompletedEvent {
+  method?: 'local_geometry' | 'vision';
   page_id: string;
   status: ReviewStatus;
   score: number;

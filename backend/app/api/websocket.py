@@ -33,6 +33,8 @@ import json
 import os
 import time
 import uuid
+from copy import deepcopy
+from ..llm.telemetry import run_project_step
 from typing import Any, Dict, List, Optional, Set
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -115,6 +117,11 @@ class WorkflowRunner:
     async def _broadcast_state(self, state: AgentState) -> None:
         await self._broadcast("state_patch", state_to_project(state))
 
+    async def _start_stage(self, project, status, step, progress):
+        project.update(status=status, current_step=step, progress=progress, error=None)
+        memory_store.update_project(project["id"], project)
+        await self._broadcast("state_patch", project)
+
     # ---------- Project creation ----------
 
     @staticmethod
@@ -127,7 +134,9 @@ class WorkflowRunner:
         project_id = f"proj_{uuid.uuid4().hex[:12]}"
 
         if spec is None:
-            spec = {"topic": "未命名PPT", "page_count": 8}
+            from ..storage.account_repository import account_repository
+            preferences = account_repository().profile()["preferences"]
+            spec = {"topic": "未命名演示", "page_count": preferences["page_count"], "style": preferences["style"]}
 
         state = create_initial_state(
             project_id=project_id,
@@ -200,6 +209,7 @@ class WorkflowRunner:
 
         async with self._get_lock():
             try:
+                await self._start_stage(project, "parsing", "正在整理内容", 0)
                 spec = project.get("spec") or {}
                 user_input = project.get("user_input") or ""
                 state = create_initial_state(project_id, spec, user_input)
@@ -207,10 +217,14 @@ class WorkflowRunner:
                 # Reuse persisted pages / outline so updates accumulate.
                 state["outline"] = project.get("outline", []) or []
 
-                state = parser_node(state)
+                state = await asyncio.to_thread(run_project_step, parser_node, state, project_id)
 
-                if "spec" in state and isinstance(state["spec"], dict):
-                    project["spec"] = state["spec"]
+                if state.get("errors"):
+                    raise ValueError(state["errors"][-1]["message"])
+                parsed = state["project"].spec
+                # Explicit form settings are authoritative; parsing supplies topic/notes.
+                parsed.update({k: v for k, v in spec.items() if v not in (None, "")})
+                project["spec"] = parsed
                 project["status"] = "parsed"
                 project["current_step"] = "输入已解析"
                 project["progress"] = 10
@@ -241,7 +255,10 @@ class WorkflowRunner:
         try:
             llm = get_llm_client()
             if not llm.config.is_configured():
-                await self._broadcast("error", {"message": "LLM 未配置，请先在设置中配置 API Key"})
+                message = "LLM 尚未配置，请在 backend/.env 中配置 API Key 并重启后端"
+                memory_store.update_project(project_id, {"status":"failed", "error":message})
+                await self._broadcast("state_patch", project)
+                await self._broadcast("error", {"message": message})
                 return
         except Exception as e:
             await self._broadcast("error", {"message": f"LLM 配置错误: {e}"})
@@ -249,17 +266,22 @@ class WorkflowRunner:
 
         async with self._get_lock():
             try:
+                await self._start_stage(project, "planning", "正在规划大纲", 10)
                 spec = project.get("spec") or {}
                 user_input = project.get("user_input") or ""
                 state = create_initial_state(project_id, spec, user_input)
 
-                state = planner_node(state)
-
+                state = await asyncio.to_thread(run_project_step, planner_node, state, project_id)
                 # Guard: if the planner itself reported a failure, surface it clearly
                 # instead of masking it behind a misleading 'planned' status.
                 planner_errors = state.get("errors") or []
                 if planner_errors:
-                    planner_msg = planner_errors[-1].get("message", "规划失败")
+                    last_error = planner_errors[-1]
+                    planner_msg = (
+                        last_error.get("message", "规划失败")
+                        if isinstance(last_error, dict)
+                        else getattr(last_error, "message", str(last_error))
+                    )
                     project["status"] = "failed"
                     project["error"] = planner_msg
                     memory_store.update_project(project_id, project)
@@ -356,6 +378,7 @@ class WorkflowRunner:
 
         async with self._get_lock():
             try:
+                await self._start_stage(project, "generating", "正在制作页面", 30)
                 # Initial parallel status
                 pages_status = {p["page_id"]: "pending" for p in pages}
                 await self._broadcast("parallel_status", {
@@ -370,8 +393,12 @@ class WorkflowRunner:
 
                 # Concurrency limit: keep enough parallelism for speed but don't
                 # overwhelm the LLM proxy with concurrent requests.
-                concurrency = min(3, page_count)
+                concurrency = min(max(1, int(os.getenv("PPT_CONCURRENCY", "3"))), 8, page_count)
                 semaphore = asyncio.Semaphore(concurrency)
+                review_semaphore = asyncio.Semaphore(concurrency)
+                # Shared only by the page tasks below. Each page owns its
+                # AgentState, so stages can advance independently.
+                page_states: Dict[str, AgentState] = {}
 
                 async def _emit_progress(forced: str = "") -> None:
                     completed = sum(1 for s in pages_status.values() if s == "completed")
@@ -400,7 +427,7 @@ class WorkflowRunner:
 
                 # ========== Phase 1: parallel write + design + preview ==========
                 # Each page is processed independently by writer → designer →
-                # preview_renderer. The critic/revision loop runs in phase 2.
+                # preview_renderer. Review starts immediately for each page.
                 async def _generate_initial(page_index: int, page_dict: Dict[str, Any]) -> Dict[str, Any]:
                     page_id = page_dict["page_id"]
                     async with semaphore:
@@ -416,24 +443,31 @@ class WorkflowRunner:
                         state["current_page_id"] = page_id
 
                         try:
-                            state = writer_node(state)
+                            state = await asyncio.to_thread(run_project_step, writer_node, state, project_id)
+                            if state["pages"][page_id].status == PageStatus.FAILED:
+                                raise ValueError(state["pages"][page_id].error)
                             page_obj = state["pages"].get(page_id)
                             if page_obj:
                                 self._save_page_content(project, page_index, page_obj)
                                 self._update_page_field(project_id, page_index, "status", "designing")
                                 await self._broadcast_page_updated(project_id, page_id, "designing")
 
-                            state = designer_node(state)
+                            state = await asyncio.to_thread(run_project_step, designer_node, state, project_id)
+                            if state["pages"][page_id].status == PageStatus.FAILED:
+                                raise ValueError(state["pages"][page_id].error)
                             page_obj = state["pages"].get(page_id)
                             if page_obj:
                                 self._save_page_layout(project, page_index, page_obj)
                                 self._update_page_field(project_id, page_index, "status", "rendering")
                                 await self._broadcast_page_updated(project_id, page_id, "rendering")
 
-                            state = preview_renderer_node(state)
+                            state = await asyncio.to_thread(run_project_step, preview_renderer_node, state, project_id)
+                            if state["pages"][page_id].status == PageStatus.FAILED:
+                                raise ValueError(state["pages"][page_id].error)
                             page_obj = state["pages"].get(page_id)
                             if page_obj and getattr(page_obj, "preview", None):
                                 self._save_page_preview(project, page_index, page_obj)
+                                memory_store.update_project(project_id, project)
                                 await self._broadcast(
                                     "preview_ready",
                                     {
@@ -443,13 +477,12 @@ class WorkflowRunner:
                                     },
                                 )
 
+                            page_states[page_id] = state
                             memory_store.update_project(project_id, project)
-                            return {
-                                "page_id": page_id,
-                                "page_index": page_index,
-                                "state": state,
-                                "page_obj": page_obj,
-                            }
+                            # The coroutine is resolved only after the full
+                            # page pipeline helper is defined, so this review
+                            # starts as soon as this page's preview is ready.
+                            return await _critique_and_revise(page_index, page_dict)
                         except Exception as e:
                             return {
                                 "page_id": page_id,
@@ -457,41 +490,23 @@ class WorkflowRunner:
                                 "error": str(e),
                             }
 
-                phase1_results = await asyncio.gather(
-                    *[_generate_initial(i, p) for i, p in enumerate(pages)],
-                    return_exceptions=False,
-                )
+                # Execution is started after the critic coroutine is defined
+                # below. This lets each task continue directly into review
+                # without waiting for other pages to finish rendering.
+                phase1_tasks = [_generate_initial(i, p) for i, p in enumerate(pages)]
 
-                # Re-build per-page state map for phase 2.
-                page_states: Dict[str, AgentState] = {}
-                for result in phase1_results:
-                    if result.get("error"):
-                        pid = result["page_id"]
-                        idx = result["page_index"]
-                        self._update_page_field(project_id, idx, "status", "failed")
-                        self._update_page_field(project_id, idx, "error", str(result["error"]))
-                        pages_status[pid] = "failed"
-                        await self._broadcast_page_updated(project_id, pid, "failed")
-                        await self._broadcast("error", {
-                            "message": f"页面 {pid} 初始生成失败: {result['error']}",
-                        })
-                        continue
-                    if result.get("cancelled"):
-                        continue
-                    page_states[result["page_id"]] = result["state"]
-
-                # ========== Phase 2: parallel critic + revision ==========
+                # ========== Per-page critic + revision ==========
                 # For each page: up to 3 revision rounds, with a score-monotonic
                 # guard. If a new revision scores lower than the previous, we
                 # stop and keep the better iteration (avoid score thrashing).
-                MAX_REVISIONS = 3
+                MAX_REVISIONS = max(1, min(4, int(os.getenv("PPT_MAX_REVIEW_ROUNDS", "2"))))
 
                 async def _critique_and_revise(page_index: int, page_dict: Dict[str, Any]) -> Dict[str, Any]:
                     page_id = page_dict["page_id"]
                     if page_id not in page_states:
                         return {"page_id": page_id, "page_index": page_index, "skipped": True}
 
-                    async with semaphore:
+                    async with review_semaphore:
                         if self._cancel.is_set():
                             return {"page_id": page_id, "page_index": page_index, "cancelled": True}
 
@@ -500,23 +515,26 @@ class WorkflowRunner:
                         best_score = 0
                         best_status = "needs_revision"
                         best_issues: List[Dict[str, Any]] = []
+                        best_page = None
                         # First critic call counts as iteration 1.
                         for iteration in range(1, MAX_REVISIONS + 1):
-                            state["critic_iteration"] = iteration
+                            state["critic_iteration"] = iteration - 1
                             page_obj = state["pages"].get(page_id)
                             if page_obj:
                                 page_obj.iteration = iteration
 
-                            state = critic_node(state)
+                            state = await asyncio.to_thread(run_project_step, critic_node, state, project_id)
                             page_obj = state["pages"].get(page_id)
                             if not page_obj:
                                 break
 
                             self._save_page_review(project, page_index, page_obj)
+                            memory_store.update_project(project_id, project)
                             await self._broadcast(
                                 "review_completed",
                                 {
                                     "page_id": page_id,
+                                    "method": page_obj.review_method,
                                     "status": page_obj.review_status,
                                     "score": page_obj.review_score,
                                     "issues": page_obj.review_issues,
@@ -531,11 +549,18 @@ class WorkflowRunner:
                             # best (or initial baseline of 0), stop and keep
                             # the previous iteration's layout.
                             if iteration > 1 and score < best_score:
-                                # Roll back the score in broadcast and stop.
+                                # Restore content, geometry AND preview, not just the previous score.
+                                if best_page is not None:
+                                    state["pages"][page_id] = deepcopy(best_page)
+                                    page_obj = state["pages"][page_id]
+                                    self._save_page_content(project, page_index, page_obj)
+                                    self._save_page_layout(project, page_index, page_obj)
+                                    self._save_page_preview(project, page_index, page_obj)
                                 page_obj.review_status = best_status
                                 page_obj.review_score = best_score
                                 page_obj.review_issues = best_issues
                                 self._save_page_review(project, page_index, page_obj)
+                                memory_store.update_project(project_id, project)
                                 await self._broadcast(
                                     "review_completed",
                                     {
@@ -555,8 +580,9 @@ class WorkflowRunner:
                                 best_score = score
                                 best_status = page_obj.review_status
                                 best_issues = page_obj.review_issues
+                                best_page = deepcopy(page_obj)
 
-                            if page_obj.review_status == "approved":
+                            if page_obj.review_status in ("approved", "blocked", "failed"):
                                 break
 
                             if iteration >= MAX_REVISIONS:
@@ -566,16 +592,25 @@ class WorkflowRunner:
                             self._update_page_field(project_id, page_index, "status", "revising")
                             await self._broadcast_page_updated(project_id, page_id, "revising")
 
-                            state = revision_planner_node(state)
-                            state = designer_node(state)
+                            if any(issue.get("owner") == "content" for issue in page_obj.review_issues):
+                                state = await asyncio.to_thread(run_project_step, writer_node, state, project_id)
+                                state = await asyncio.to_thread(run_project_step, designer_node, state, project_id)
+                                self._save_page_content(project, page_index, state["pages"][page_id])
+                            else:
+                                state = await asyncio.to_thread(run_project_step, revision_planner_node, state, project_id)
+                            if state["pages"][page_id].status == PageStatus.FAILED:
+                                raise ValueError(state["pages"][page_id].error)
                             page_obj = state["pages"].get(page_id)
                             if page_obj:
                                 self._save_page_layout(project, page_index, page_obj)
 
-                            state = preview_renderer_node(state)
+                            state = await asyncio.to_thread(run_project_step, preview_renderer_node, state, project_id)
+                            if state["pages"][page_id].status == PageStatus.FAILED:
+                                raise ValueError(state["pages"][page_id].error)
                             page_obj = state["pages"].get(page_id)
                             if page_obj and getattr(page_obj, "preview", None):
                                 self._save_page_preview(project, page_index, page_obj)
+                                memory_store.update_project(project_id, project)
                                 await self._broadcast(
                                     "preview_ready",
                                     {
@@ -600,15 +635,14 @@ class WorkflowRunner:
                         score = page_obj.review_score or 0
                         if page_obj.review_status == "approved":
                             final_status = "completed"
-                        elif page_obj.review_status == "blocked" and score >= 70:
-                            final_status = "completed"
-                        elif page_obj.review_status in ("needs_revision", "blocked") and score >= 70:
-                            final_status = "completed"
                         else:
                             final_status = "failed"
                         self._update_page_field(project_id, page_index, "status", final_status)
                         pages_status[page_id] = final_status
                         await self._broadcast_page_updated(project_id, page_id, final_status)
+                        # Publish aggregate progress as soon as this page
+                        # finishes; do not wait for the batch gather.
+                        await _emit_progress(forced=f"页面 {page_id} 已{('完成' if final_status == 'completed' else '失败')}")
                         return {
                             "page_id": page_id,
                             "page_index": page_index,
@@ -616,23 +650,42 @@ class WorkflowRunner:
                             "score": page_obj.review_score,
                         }
 
-                # Kick off all critics in parallel.
-                await asyncio.gather(
-                    *[_critique_and_revise(i, p) for i, p in enumerate(pages)],
-                )
+                # Kick off independent page pipelines in parallel. There is
+                # no phase barrier between rendering and review.
+                results = await asyncio.gather(*phase1_tasks, return_exceptions=False)
+                for result in results:
+                    if isinstance(result, dict) and result.get("error"):
+                        pid = result["page_id"]
+                        idx = result["page_index"]
+                        self._update_page_field(project_id, idx, "status", "failed")
+                        self._update_page_field(project_id, idx, "error", str(result["error"]))
+                        pages_status[pid] = "failed"
+                        await self._broadcast_page_updated(project_id, pid, "failed")
+                        await self._broadcast("error", {
+                            "message": f"页面 {pid} 生成失败: {result['error']}",
+                        })
+                        await _emit_progress(forced=f"页面 {pid} 生成失败")
 
                 await _emit_progress(forced="内容生成与评审完成")
 
+                if self._cancel.is_set() or any(status != "completed" for status in pages_status.values()):
+                    project["status"] = "failed"
+                    project["error"] = "部分页面未通过检查，请调整内容或重试"
+                    memory_store.update_project(project_id, project)
+                    await self._broadcast("state_patch", project)
+                    return
+                # Export before sending a download URL; previously this file did not exist yet.
+                os.makedirs(settings.storage_path, exist_ok=True)
+                filepath = os.path.join(settings.storage_path, f"{project_id}.pptx")
+                await asyncio.to_thread(PPTXGenerator().generate,
+                    [self._normalize_page_for_export(p) for p in project["pages"]], filepath,
+                    spec.get("topic", "PPT演示文稿"), template_kb.get_template(spec.get("style", "商务简约")))
                 project["status"] = "completed"
                 project["progress"] = 100
                 project["current_step"] = "生成完成"
                 memory_store.update_project(project_id, project)
-
                 await self._broadcast("state_patch", project)
-                await self._broadcast(
-                    "completed",
-                    {"download_url": f"/storage/{project_id}.pptx"},
-                )
+                await self._broadcast("completed", {"download_url": f"/storage/{project_id}.pptx"})
 
             except Exception as e:
                 project["status"] = "failed"
@@ -641,8 +694,6 @@ class WorkflowRunner:
                 await self._broadcast("error", {"message": str(e)})
 
     async def cmd_trigger_review(self, project_id: str, page_id: str) -> None:
-        from ..agent.nodes import review_page
-
         project = memory_store.get_project(project_id)
         if not project:
             await self._broadcast("error", {"message": "项目不存在"})
@@ -659,15 +710,17 @@ class WorkflowRunner:
         page = pages[page_index]
         async with self._get_lock():
             try:
-                result = review_page(
-                    page_id=page_id,
-                    page_data=page.get("content", {}),
-                    preview_path=(page.get("preview") or {}).get("image_path", ""),
-                    layout_type=page.get("layout", {}).get("layout_type", "title_content"),
-                    iteration=page.get("iteration", 1),
-                    previous_issues=(page.get("review") or {}).get("issues"),
-                )
+                project["error"] = None
+                state = create_initial_state(project_id, project.get("spec") or {}, project.get("user_input", ""))
+                state["pages"][page_id] = self._hydrate_page(page)
+                state["current_page_id"] = page_id
+                from ..agent.nodes import critic_node
+                state = await asyncio.to_thread(run_project_step, critic_node, state, project_id)
+                reviewed = state["pages"][page_id]
+                result = {"status": reviewed.review_status, "score": reviewed.review_score,
+                          "issues": reviewed.review_issues, "method": reviewed.review_method}
                 page["review"] = {
+                    "method": result.get("method"),
                     "status": result.get("status"),
                     "score": result.get("score"),
                     "issues": result.get("issues", []),
@@ -686,6 +739,7 @@ class WorkflowRunner:
                     "review_completed",
                     {
                         "page_id": page_id,
+                        "method": result.get("method"),
                         "status": result.get("status"),
                         "score": result.get("score"),
                         "issues": result.get("issues", []),
@@ -711,6 +765,7 @@ class WorkflowRunner:
 
         async with self._get_lock():
             try:
+                await self._start_stage(project, "rendering", "正在导出文件", 98)
                 os.makedirs(settings.storage_path, exist_ok=True)
                 filename = f"{project_id}.pptx"
                 filepath = os.path.join(settings.storage_path, filename)
@@ -722,7 +777,7 @@ class WorkflowRunner:
 
                 generator = PPTXGenerator()
                 normalized_pages = [self._normalize_page_for_export(p) for p in pages]
-                generator.generate(
+                await asyncio.to_thread(generator.generate,
                     pages=normalized_pages,
                     output_path=filepath,
                     title=title,
@@ -763,8 +818,13 @@ class WorkflowRunner:
         table_data / speaker_notes / style_config at the top level, plus the
         designer's layout_json + master_json promoted into a style_config.
         """
+        page_dict = page_dict or {}
         content = page_dict.get("content") or {}
         layout = page_dict.get("layout") or {}
+        if not isinstance(content, dict):
+            content = {}
+        if not isinstance(layout, dict):
+            layout = {}
 
         layout_json = layout.get("layout_json") or {}
         master_json = layout.get("master_json") or {}
@@ -796,6 +856,7 @@ class WorkflowRunner:
         """Convert a stored page dict back to a PageState model."""
         content = page_dict.get("content") or {}
         layout = page_dict.get("layout") or {}
+        review = page_dict.get("review") or {}
         try:
             return PageState(
                 page_id=page_dict["page_id"],
@@ -807,7 +868,17 @@ class WorkflowRunner:
                     "bullet_points", page_dict.get("bullet_points", []) or []
                 ),
                 speaker_notes=content.get("speaker_notes", page_dict.get("speaker_notes", "")),
+                chart_data=content.get("chart_data", page_dict.get("chart_data")),
+                table_data=content.get("table_data", page_dict.get("table_data")),
                 layout_type=layout.get("layout_type", page_dict.get("layout_type", "title_content")),
+                layout_json=layout.get("layout_json"),
+                master_json=layout.get("master_json"),
+                preview=page_dict.get("preview"),
+                review_method=review.get("method"),
+                review_status=review.get("status"),
+                review_score=review.get("score"),
+                review_issues=review.get("issues") or [],
+                review_suggestions=review.get("suggestions") or [],
                 iteration=page_dict.get("iteration", 1),
                 max_iterations=page_dict.get("max_iterations", 4),
                 status=PageStatus(page_dict.get("status", "pending")),
@@ -825,6 +896,8 @@ class WorkflowRunner:
             "subtitle": page.subtitle,
             "key_points": page.key_points,
             "bullet_points": page.bullet_points,
+            "chart_data": page.chart_data,
+            "table_data": page.table_data,
             "speaker_notes": page.speaker_notes,
         }
         project["pages"] = pages
@@ -857,6 +930,7 @@ class WorkflowRunner:
         if not (0 <= index < len(pages)):
             return
         pages[index]["review"] = {
+            "method": page.review_method,
             "status": page.review_status,
             "score": page.review_score,
             "issues": page.review_issues,
@@ -897,21 +971,44 @@ async def websocket_handler(websocket: WebSocket, project_id: str) -> None:
 
     runner = WorkflowRunner(project_id, send)
 
+    queue = asyncio.Queue(maxsize=32)
+    async def process_commands():
+        while True:
+            message = await queue.get()
+            try:
+                await _dispatch(message, project_id, runner, send)
+            except Exception as exc:
+                await send({"type": "error", "data": {"message": str(exc)}})
+            finally:
+                queue.task_done()
+    worker = asyncio.create_task(process_commands())
     try:
         while True:
             raw = await websocket.receive_text()
             try:
                 msg = json.loads(raw)
-            except json.JSONDecodeError:
-                await send({"type": "error", "data": {"message": "消息格式错误，需要 JSON"}})
+                if not isinstance(msg, dict):
+                    raise ValueError("需要JSON对象")
+            except (json.JSONDecodeError, ValueError):
+                await send({"type": "error", "data": {"message": "消息格式错误，需要JSON对象"}})
                 continue
-
-            await _dispatch(msg, project_id, runner, send)
-
+            if msg.get("type") == "ping":
+                await send({"type": "pong", "data": {"ts": time.time()}})
+            elif queue.full():
+                await send({"type": "error", "data": {"message": "命令队列已满，请稍后重试"}})
+            else:
+                queue.put_nowait(msg)
     except WebSocketDisconnect:
         pass
     finally:
+        runner.cancel()
+        worker.cancel()
         manager.disconnect(websocket, project_id)
+        project = memory_store.get_project(project_id)
+        if project and project.get("status") in {"parsing", "planning", "generating", "reviewing", "rendering"}:
+            memory_store.update_project(project_id, {"status": "failed", "current_step": "制作已中断",
+                "error": "连接关闭中断了制作。材料与已生成页面已保留，可点击重新制作。"})
+        await asyncio.gather(worker, return_exceptions=True)
 
 
 async def _dispatch(

@@ -1,6 +1,7 @@
 """Critic node - multi-modal image review for visual quality."""
 
 import json
+import os
 import base64
 from datetime import datetime
 from pathlib import Path
@@ -11,60 +12,10 @@ from ...llm import get_llm_client
 from ...contracts.json_utils import extract_json_from_text
 
 
-CRITIC_PROMPT = """你是专业的PPT视觉评审专家。请评估以下幻灯片页面的视觉质量，并**只输出一个 JSON 对象**，不要任何解释文字或 Markdown 围栏。
-
-## 规则（必须遵守）
-1. 整段回复必须是一个合法 JSON 对象，第一字符是 `{{`，最后一字符是 `}}`。
-2. 禁止使用 Markdown 代码块（不要 ``` 或 ```json）。
-3. 禁止在 JSON 之前或之后写任何文字、注释、说明、客套话。
-4. status 必须是以下四个值之一：approved / needs_revision / blocked / failed。
-5. score 必须是 0–100 的整数。
-6. 真实看到图片时再下结论；不要凭空猜测。
-7. 如果占位符之间明显重叠、文本溢出画布、对比度过低、字号过小（小于 14px），必须给出 issues 并建议修订。
-
-## 当前页面信息
-- 页面类型: {page_type}
-- 标题: {title}
-- 内容摘要: {content_summary}
-- 布局类型: {layout_type}
-
-## 画布信息
-- 宽度: 1600px
-- 高度: 900px
-- 宽高比: 16:9
-
-## 设计规则
-- 最小正文字号: 14px
-- 最大内容密度: 65%
-- 安全边距: 40px
-
-## 评审维度（每项0-10分）
-1. alignment（对齐）- 元素对齐、一致性
-2. balance（平衡）- 视觉平衡、重量感分布
-3. readability（可读性）- 字体大小、对比度、行距
-4. hierarchy（层级）- 标题、正文、强调的层次关系
-5. density（密度）- 信息密度是否合适
-6. consistency（一致性）- 与整体风格的一致性
-
-## 问题分类
-- alignment / whitespace / density / hierarchy / font_size / contrast / overflow / overlap / balance / consistency
-
-## 问题负责人
-- layout: 布局问题，由布局调整处理
-- content: 内容问题，由内容调整处理
-
-## 输出 schema（严格遵守）
-{{"status":"approved|needs_revision|blocked|failed","score":number,"dimensions":object,"issues":[object],"next_action":"approve|revise_layout|revise_content|blocked|failed"}}
-
-## 判断标准
-- 评分 >= 80 且无高严重性问题：通过 (approved)
-- 评分 60–79 或存在中等问题：需要调整 (needs_revision)
-- 评分 < 60 或存在多个高严重性问题：需要调整 (needs_revision)
-- 渲染失败：失败 (failed)
-- 无法判断：阻塞 (blocked)
-
-## 示例输出
-{{"status":"approved","score":85,"dimensions":{{"alignment":8,"balance":8,"readability":9,"hierarchy":8,"density":8,"consistency":9}},"issues":[],"next_action":"approve"}}"""
+CRITIC_PROMPT = """检查所附幻灯片的排版、可读性、溢出、对齐与信息层级。只返回紧凑JSON：
+{"status":"approved|needs_revision|blocked|failed","score":0,"issues":[],"next_action":"approve|revise_layout|revise_content|blocked|failed"}。
+issues最多3项，每项包含issue_id、category、severity、target、description、suggested_action、owner(layout或content)。
+无法看到图片则blocked。不要编造检查结果。评分80以上且无严重问题才通过。"""
 
 
 def critic_node(state: AgentState) -> AgentState:
@@ -84,6 +35,9 @@ def critic_node(state: AgentState) -> AgentState:
     page = state["pages"].get(page_id)
     if not page:
         return state
+    if page.status == "failed":
+        page.review_status = "failed"
+        return state
 
     state["workflow"].current_node = "critic"
     page.status = "reviewing"
@@ -93,39 +47,28 @@ def critic_node(state: AgentState) -> AgentState:
     page.iteration = state["critic_iteration"]
 
     try:
-        # Perform review
-        review_result = _review_page_image(
-            page=page,
-            previous_review=page.review_issues if page.review_issues else None,
-            iteration=page.iteration,
-        )
+        mode = state["project"].spec.get("review_mode", os.getenv("PPT_REVIEW_MODE", "local"))
+        if mode == "vision":
+            review_result = _review_page_image(page, page.review_issues or None, page.iteration)
+        else:
+            from ...tools.slide_quality import review_scene
+            review_result = review_scene(page.to_dict(), state["project"].spec.get("style", "商务简约"))
+        page.review_method = review_result.get("review_method", "vision")
 
         # Update page state
         page.review_status = review_result.get("status")
-        # If the model returned blocked/failed/None without a usable score,
-        # fall back to a conservative pass-with-caveats score so the page
-        # doesn't end up marked failed downstream.
-        raw_score = review_result.get("score")
-        page.review_score = raw_score if isinstance(raw_score, (int, float)) and raw_score > 0 else 75
+        page.review_score = review_result.get("score", 0)
         page.review_issues = review_result.get("issues", [])
         page.review_suggestions = [
             issue.get("suggested_action", "")
             for issue in review_result.get("issues", [])
         ]
 
-        # When the model couldn't evaluate ("blocked") but still produced
-        # the page's content successfully, treat it as approved so the
-        # pipeline can finish.
-        if page.review_status in ("blocked", "failed") and (page.review_score or 0) >= 70:
-            page.review_status = "approved"
-
         state["pages"][page_id] = page
 
     except Exception as e:
-        # Don't block generation on a critic exception. Mark as approved
-        # with a conservative score so downstream nodes can finish.
-        page.review_status = "approved"
-        page.review_score = 75
+        page.review_status = "blocked"
+        page.review_score = 0
         page.error = f"评审异常: {str(e)}"
         state["errors"].append({
             "error_id": f"err-{len(state['errors']) + 1}",
@@ -176,57 +119,30 @@ def _review_page_image(
 请直接输出JSON格式的评审结果。"""
 
     # Call LLM
-    llm = get_llm_client()
+    llm = get_llm_client("critic")
 
-    # If we have an image, use multi-modal call
-    if image_base64:
-        # Note: This assumes the LLM client supports image input
-        # Adjust based on the actual LLM client implementation
-        try:
-            response = llm.generate_with_image(
-                prompt=prompt,
-                image_base64=image_base64,
-                system=CRITIC_PROMPT,
-                max_tokens=327680,
-            )
-        except AttributeError:
-            # Fallback if image support is not available
-            response = llm.generate(
-                prompt=f"{prompt}\n\n[图片预览: {page.preview.image_path}]",
-                system=CRITIC_PROMPT,
-                max_tokens=327680,
-            )
-    else:
-        response = llm.generate(
-            prompt=prompt,
-            system=CRITIC_PROMPT,
-            max_tokens=327680,
-        )
+    if not image_base64:
+        return {"status": "blocked", "score": 0, "issues": [], "next_action": "blocked",
+                "review_method": "vision", "error": "缺少可读取的预览图片"}
+    response = llm.generate_with_image(prompt=prompt, image_base64=image_base64,
+                                       system=CRITIC_PROMPT, max_tokens=650)
 
     # Parse response
     json_text = extract_json_from_text(response)
 
     try:
-        return json.loads(json_text)
-    except json.JSONDecodeError:
-        # Best-effort fallback: if we can't parse the critic's output
-        # (e.g. a reverse-proxy injects its own JSON schema), don't block
-        # the entire generation. Pretend the page was approved with a
-        # neutral score and no issues.
-        return {
-            "status": "approved",
-            "score": 80,
-            "dimensions": {
-                "alignment": 8,
-                "balance": 8,
-                "readability": 8,
-                "hierarchy": 8,
-                "density": 8,
-                "consistency": 8,
-            },
-            "issues": [],
-            "next_action": "approve",
-        }
+        result = json.loads(json_text)
+        if not isinstance(result, dict):
+            raise ValueError("复核结果必须是对象")
+        if result.get("status") not in {"approved", "needs_revision", "blocked", "failed"}:
+            raise ValueError("复核 status 无效")
+        if not isinstance(result.get("score"), (int, float)) or not 0 <= result["score"] <= 100:
+            raise ValueError("复核 score 必须是 0 到 100")
+        if not isinstance(result.get("issues"), list):
+            raise ValueError("复核 issues 必须是数组")
+        return result
+    except json.JSONDecodeError as exc:
+        raise ValueError("图片评审返回无效JSON") from exc
 
 
 def _get_content_summary(page: Any) -> str:

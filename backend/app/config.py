@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     )
 
     # App
-    app_name: str = "PPTMaker Agent"
+    app_name: str = "Folio Studio"
     debug: bool = True
 
     # API

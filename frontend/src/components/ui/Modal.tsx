@@ -1,4 +1,4 @@
-// Modal/Dialog component - Soft UI Style
+// Modal/Dialog component - Folio shared design system
 
 import { forwardRef } from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
@@ -17,7 +17,7 @@ export const ModalOverlay = forwardRef<
   <DialogPrimitive.Overlay
     ref={ref}
     className={clsx(
-      'fixed inset-0 z-50 bg-gray-900/40 backdrop-blur-sm',
+      'fixed inset-0 z-50 bg-[#27342d]/30',
       'data-[state=open]:animate-in data-[state=closed]:animate-out',
       'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
       className
@@ -37,7 +37,7 @@ export const ModalContent = forwardRef<
       ref={ref}
       className={clsx(
         'fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2',
-        'w-full max-w-lg bg-white rounded-3xl shadow-soft-xl p-8',
+        'w-[calc(100%-40px)] max-w-lg bg-white rounded-lg border border-[#dfe4da] p-6',
         'duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out',
         'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
         'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
@@ -48,9 +48,9 @@ export const ModalContent = forwardRef<
       {...props}
     >
       {children}
-      <DialogPrimitive.Close className="absolute right-6 top-6 rounded-xl p-2 opacity-70 transition-opacity hover:opacity-100 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/50">
+      <DialogPrimitive.Close className="absolute right-6 top-6 rounded-md p-2 opacity-70 transition-opacity hover:opacity-100 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-[#78917b]">
         <X className="w-5 h-5 text-gray-500" />
-        <span className="sr-only">Close</span>
+        <span className="sr-only">关闭</span>
       </DialogPrimitive.Close>
     </DialogPrimitive.Content>
   </ModalPortal>
@@ -73,7 +73,7 @@ export const ModalTitle = forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Title
     ref={ref}
-    className={clsx('text-2xl font-semibold text-gray-800', className)}
+    className={clsx('text-lg font-semibold text-gray-800', className)}
     {...props}
   />
 ));

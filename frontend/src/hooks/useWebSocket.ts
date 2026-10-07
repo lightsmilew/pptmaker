@@ -58,8 +58,9 @@ export function useWebSocket(projectId: string | null) {
       case 'initial_state':
       case 'state_patch': {
         if (data && typeof data === 'object') {
-          handleStatePatch(data as PPTProject);
-          setProject(data as PPTProject);
+          if (data.id && data.id !== useProjectStore.getState().project?.id) break;
+          if (message.type === 'initial_state') setProject(data as PPTProject);
+          else handleStatePatch(data as PPTProject);
           if ((data as PPTProject).error) {
             setError((data as PPTProject).error!);
             toast.error((data as PPTProject).error!);
@@ -75,9 +76,6 @@ export function useWebSocket(projectId: string | null) {
       case 'page_updated': {
         const event = data as PageUpdateEvent;
         handlePageUpdated(event);
-        if (event.status === 'completed') {
-          toast.success(`页面 ${event.page_id} 生成完成`);
-        }
         break;
       }
       case 'preview_ready': {
@@ -87,11 +85,6 @@ export function useWebSocket(projectId: string | null) {
       case 'review_completed': {
         const event = data as ReviewCompletedEvent;
         handleReviewCompleted(event);
-        if (event.status === 'approved') {
-          toast.success(`页面 ${event.page_id} 评审通过 (${event.score}分)`);
-        } else if (event.status === 'needs_revision') {
-          toast(`页面 ${event.page_id} 需要调整`, { icon: '🔧' });
-        }
         break;
       }
       case 'parallel_status': {
@@ -100,7 +93,7 @@ export function useWebSocket(projectId: string | null) {
       }
       case 'completed': {
         handleCompleted(data as CompletedEvent);
-        toast.success('PPT生成完成！');
+        toast.success('演示文稿已完成，可以下载了。');
         break;
       }
       case 'error': {
@@ -148,15 +141,18 @@ export function useWebSocket(projectId: string | null) {
     wsRef.current = ws;
 
     ws.onopen = () => {
+      if (wsRef.current !== ws || projectIdRef.current !== id || disposedRef.current) return;
       // Must assign BEFORE setSendCommand so the captured `send` closure
       // holds a reference to the CURRENT open socket — not the stale one
       // that was replaced by this new connection.
       wsRef.current = ws;
       console.log('WebSocket connected');
+      if (useProjectStore.getState().error?.startsWith('WebSocket')) setError(null);
       setSendCommand(send);
     };
 
     ws.onmessage = (event) => {
+      if (wsRef.current !== ws || projectIdRef.current !== id || disposedRef.current) return;
       try {
         const message: WebSocketMessage = JSON.parse(event.data);
         handleMessage(message);
@@ -166,11 +162,13 @@ export function useWebSocket(projectId: string | null) {
     };
 
     ws.onerror = (error) => {
+      if (wsRef.current !== ws || projectIdRef.current !== id || disposedRef.current) return;
       console.error('WebSocket error:', error);
       setError('WebSocket 连接错误');
     };
 
     ws.onclose = () => {
+      if (wsRef.current !== ws || projectIdRef.current !== id || disposedRef.current) return;
       console.log('WebSocket disconnected');
       setSendCommand(null);
       if (disposedRef.current) return;

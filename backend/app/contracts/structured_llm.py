@@ -128,8 +128,11 @@ class StructuredLLMCaller:
 
             # Make the LLM call
             try:
+                retry_prompt = prompt
+                if context.current_attempt > 1 and context.validation_errors:
+                    retry_prompt += "\n\n上一轮输出未通过本地校验，请只修正格式后重新输出。上一轮校验错误：" + "; ".join(context.validation_errors)
                 raw_response = self.llm.generate(
-                    prompt=prompt,
+                    prompt=retry_prompt,
                     system=system,
                     max_tokens=max_tokens
                 )

@@ -1,13 +1,14 @@
 [project]
-name = "pptmaker"
+name = "folio-studio"
 version = "0.1.0"
-description = "AI-powered PPT generation with multi-agent collaboration"
+description = "Folio: a local studio for editable, thoughtfully designed presentations"
 requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.104.0",
     "uvicorn[standard]>=0.24.0",
     "python-multipart>=0.0.6",
     "python-pptx>=0.6.21",
+    "Pillow>=10.0.0",
     "pydantic>=2.5.0",
     "pydantic-settings>=2.1.0",
     "langgraph>=0.0.20",

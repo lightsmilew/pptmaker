@@ -1,4 +1,4 @@
-// Button component - Soft UI Style
+// Button component - Folio shared design system
 
 import { forwardRef, ButtonHTMLAttributes } from 'react';
 import { cva, type VariantProps } from 'class-variance-authority';
@@ -6,19 +6,19 @@ import { clsx } from 'clsx';
 import { Loader2 } from 'lucide-react';
 
 const buttonVariants = cva(
-  'inline-flex items-center justify-center gap-2 font-medium rounded-2xl transition-all duration-200 ease-out focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500/50 disabled:opacity-50 disabled:cursor-not-allowed',
+  'inline-flex items-center justify-center gap-2 font-medium rounded-md transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed',
   {
     variants: {
       variant: {
-        primary: 'bg-indigo-600 text-white shadow-lg hover:-translate-y-0.5 hover:shadow-xl hover:shadow-indigo-500/30 active:scale-95 active:shadow-md',
-        secondary: 'bg-white text-gray-700 shadow-lg hover:-translate-y-0.5 hover:shadow-xl active:scale-95 active:shadow-md',
-        outline: 'bg-transparent text-indigo-600 border-2 border-indigo-200 hover:bg-indigo-50 hover:border-indigo-300 active:scale-95',
-        ghost: 'bg-transparent text-gray-600 hover:bg-gray-100 active:scale-95',
-        danger: 'bg-red-500 text-white shadow-lg hover:-translate-y-0.5 hover:shadow-xl hover:shadow-red-500/30 active:scale-95',
+        primary: 'bg-[#29483e] text-white hover:bg-[#203a32]',
+        secondary: 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50',
+        outline: 'bg-transparent text-[#29483e] border border-[#cbd4cd] hover:bg-[#eef1ed]',
+        ghost: 'bg-transparent text-gray-600 hover:bg-gray-100',
+        danger: 'bg-red-600 text-white hover:bg-red-700',
       },
       size: {
-        sm: 'px-4 py-2 text-sm',
-        md: 'px-5 py-2.5 text-sm',
+        sm: 'px-3 py-2 text-xs',
+        md: 'px-4 py-2.5 text-xs',
         lg: 'px-6 py-3 text-base',
         xl: 'px-8 py-4 text-lg',
         icon: 'w-11 h-11',

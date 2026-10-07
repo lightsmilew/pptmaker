@@ -1,85 +1,8 @@
-"""Designer node - generates layout specification using unified contract."""
+"""Designer node: choose and validate a measured template without an LLM call."""
 
-import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from ..state import AgentState
-from ...llm import get_llm_client
-from ...contracts.json_utils import extract_json_from_text
-from ...contracts.validators import validate_layout_spec, semantic_validate_layout_content
-from ...contracts.schemas import LayoutSpec, MasterLayout
-
-
-DESIGNER_PROMPT = """你是专业的PPT视觉设计师。请根据页面内容设计一个现代、简约、可渲染的 PowerPoint 页面布局，并**只输出一个 JSON 对象**，不要任何解释文字或 Markdown 围栏。
-
-## 规则（必须遵守）
-1. 整段回复必须是一个合法 JSON 对象，第一字符是 `{{`，最后一字符是 `}}`。
-2. 禁止使用 Markdown 代码块（不要 ``` 或 ```json）。
-3. 禁止在 JSON 之前或之后写任何文字、注释、说明、客套话。
-4. 占位符坐标必须严格落在 0–13.333 (x/w) 与 0–7.5 (y/h) 英寸内。
-5. x/y/w/h 使用英寸（标准 16:9 幻灯片尺寸：宽 13.333 英寸，高 7.5 英寸）。
-6. 至少包含一个 type 为 title 的占位符；正文页必须有 type 为 text 的占位符。
-7. 避免 placeholder 之间的重叠：同一类型的 text 占位符 x/w 范围应明显不重叠。
-8. 标题文字不要超过 30 个汉字或 60 个英文字符，避免与正文争抢空间。
-9. 当 key_points / bullet_points 超过 5 条时，建议换为 two_column 或 three_column 布局。
-10. 不要使用 emoji。
-11. 字段类型严格匹配 schema，缺失字段会被系统判定为生成失败。
-
-## 页面信息
-- 页面ID: {page_id}
-- 页面类型: {page_type}
-- 标题: {title}
-- 副标题: {subtitle}
-- 要点数量: {num_points}
-
-## 内容摘要
-{content_summary}
-
-## 主题风格
-{style_info}
-
-## 输出 schema（严格遵守）
-{{"theme_name":string,"master":object,"layouts":[object]}}
-
-## 示例输出
-{{"theme_name":"简洁专业","master":{{"background":{{"type":"solid","rgb":[255,255,255]}},"color_scheme":{{"primary":[20,40,80],"secondary":[80,100,140],"accent":[60,120,180],"text":[30,30,30],"light_text":[255,255,255]}},"font_scheme":{{"title_font":"Microsoft YaHei","body_font":"Microsoft YaHei","title_size":32,"body_size":16}}}},"layouts":[{{"layout_id":"content","layout_type":"title_content","placeholders":[{{"name":"title","type":"title","x":0.8,"y":0.4,"w":11.7,"h":0.8}},{{"name":"content","type":"text","x":1.0,"y":1.6,"w":11.2,"h":5.2}}]}}]}}"""
-
-
-# Layout presets for common configurations
-LAYOUT_PRESETS = {
-    "title_content": [
-        ("title", "title", 0.8, 0.4, 11.7, 0.8),
-        ("content", "text", 1, 1.6, 11.2, 5.2),
-    ],
-    "two_column": [
-        ("title", "title", 0.8, 0.4, 11.7, 0.8),
-        ("content_1", "text", 0.9, 1.6, 5.3, 5.1),
-        ("content_2", "text", 7, 1.6, 5.3, 5.1),
-    ],
-    "three_column": [
-        ("title", "title", 0.8, 0.4, 11.7, 0.8),
-        ("content_1", "text", 0.9, 1.8, 3.7, 4.7),
-        ("content_2", "text", 4.9, 1.8, 3.7, 4.7),
-        ("content_3", "text", 8.9, 1.8, 3.5, 4.7),
-    ],
-    "cover": [
-        ("title", "title", 1, 1.7, 11.2, 1.2),
-        ("subtitle", "text", 1, 3.1, 10, 0.7),
-    ],
-    "toc": [
-        ("title", "title", 0.8, 0.45, 11.5, 0.7),
-        ("content", "text", 1, 1.5, 11, 4.8),
-    ],
-    "chart_content": [
-        ("title", "title", 0.8, 0.4, 11.7, 0.8),
-        ("chart", "chart", 1, 1.6, 7.3, 4.9),
-        ("content", "text", 8.7, 1.8, 3.7, 4.6),
-    ],
-    "conclusion": [
-        ("title", "title", 0.8, 0.4, 11.7, 0.8),
-        ("content", "text", 1, 1.6, 11, 4.8),
-    ],
-}
 
 
 def designer_node(state: AgentState) -> AgentState:
@@ -88,7 +11,7 @@ def designer_node(state: AgentState) -> AgentState:
 
     This node:
     - Takes page content and outline
-    - Generates layout configuration using LLM
+    - Chooses layout geometry from measured templates
     - Validates layout against constraints
     - Updates page state
     """
@@ -113,12 +36,18 @@ def designer_node(state: AgentState) -> AgentState:
             page_type=page.page_type.value,
             title=page.title,
             subtitle=page.subtitle,
-            num_points=len(page.key_points) + len(page.bullet_points),
+            num_points=max(len(page.key_points), len(page.bullet_points)),
             content_summary=_get_content_summary(page),
             style=style,
         )
 
-        # Validate layout
+        # Retain the planner's semantic layout choice (e.g. a comparison).
+        from ...tools.slide_scene import template_layout
+        suggested = next((item.get("suggest_layout", "") for item in state.get("outline", [])
+                          if item.get("page_id") == page_id), "")
+        layout_data["layouts"] = [template_layout(page.page_type.value,
+            max(len(page.key_points), len(page.bullet_points)), bool(page.subtitle), suggested)]
+        layout_data["layout_type"] = layout_data["layouts"][0]["layout_type"]
         _validate_layout_data(layout_data, page)
 
         # Update page state
@@ -150,26 +79,21 @@ def _generate_layout_config(
     content_summary: str,
     style: str,
 ) -> Dict[str, Any]:
-    """Generate layout configuration using LLM."""
-    prompt = DESIGNER_PROMPT.format(
-        page_id=page_id,
-        page_type=page_type,
-        title=title,
-        subtitle=subtitle or "（无）",
-        num_points=num_points,
-        content_summary=content_summary,
-        style_info=style,
-    )
-
-    llm = get_llm_client()
-    response = llm.generate(prompt=prompt, system="", max_tokens=327680)
-
-    json_text = extract_json_from_text(response)
-
-    try:
-        return json.loads(json_text)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"JSON解析失败: {e}")
+    """Build a local theme and layout configuration."""
+    from ...tools.slide_scene import get_theme, template_layout, rgb
+    theme = get_theme(style)
+    # Stable templates replace a full LLM master/geometry response per page.
+    layout = template_layout(page_type, num_points, bool(subtitle))
+    master = {
+        "background": {"type": "solid", "rgb": list(rgb(theme["background"]))},
+        "color_scheme": {name: list(rgb(theme.get(name, theme["primary"])))
+                         for name in ("primary", "secondary", "accent", "text")},
+        "font_scheme": {"title_font": "Microsoft YaHei", "body_font": "Microsoft YaHei",
+                        "title_size": 30, "body_size": 18},
+    }
+    master["color_scheme"]["light_text"] = [255, 255, 255]
+    return {"theme_name": style, "master": master, "layouts": [layout],
+            "layout_type": layout["layout_type"]}
 
 
 def _get_content_summary(page) -> str:
@@ -283,8 +207,6 @@ def generate_layout(
     Returns:
         Generated layout configuration
     """
-    from ...contracts.schemas import PageContent
-
     page = type('obj', (object,), {
         'key_points': key_points,
         'bullet_points': bullet_points,
@@ -298,7 +220,7 @@ def generate_layout(
         page_type=page_type,
         title=title,
         subtitle=subtitle,
-        num_points=len(key_points) + len(bullet_points),
+        num_points=max(len(key_points), len(bullet_points)),
         content_summary=_get_content_summary(page),
         style=style,
     )

@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 from ..state import AgentState
 from ...llm import get_llm_client
 from ...contracts.json_utils import extract_json_from_text
+from ...contracts.json_contract import STRICT_JSON_SYSTEM
 
 
 PARSER_PROMPT = """你是一个专业的PPT需求解析专家。请从用户的输入中提取PPT制作所需的关键信息。
@@ -83,12 +84,20 @@ def parser_node(state: AgentState) -> AgentState:
 
     # Call LLM
     try:
-        llm = get_llm_client()
-        response = llm.generate(prompt=prompt, system="", max_tokens=327680)
+        llm = get_llm_client("parser")
+        response = llm.generate(prompt=prompt, system=STRICT_JSON_SYSTEM, max_tokens=650, json_object=True)
 
         # Parse response
         json_text = extract_json_from_text(response)
         spec_data = json.loads(json_text)
+        required = {"topic": str, "audience": str, "page_count": int, "style": str,
+                    "needs_cover": bool, "needs_toc": bool, "needs_summary": bool,
+                    "needs_chart": bool, "notes": str}
+        for key, expected in required.items():
+            if key not in spec_data or not isinstance(spec_data[key], expected):
+                raise ValueError(f"需求解析结果字段无效: {key}")
+        if not 1 <= spec_data["page_count"] <= 50:
+            raise ValueError("page_count 必须在 1 到 50 之间")
 
         # Update project spec
         state["project"].spec = spec_data
@@ -138,8 +147,8 @@ def parse_input(user_input: str, uploaded_files: List[str] = None) -> Dict[str, 
         uploaded_files_content=uploaded_files_text
     )
 
-    llm = get_llm_client()
-    response = llm.generate(prompt=prompt, system="", max_tokens=327680)
+    llm = get_llm_client("parser")
+    response = llm.generate(prompt=prompt, system=STRICT_JSON_SYSTEM, max_tokens=650, json_object=True)
 
     json_text = extract_json_from_text(response)
     return json.loads(json_text)

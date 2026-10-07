@@ -9,38 +9,15 @@ from ...contracts.json_utils import extract_json_from_text
 from ...contracts.structured_llm import StructuredLLMCaller
 
 
-WRITER_PROMPT = """你是一个专业的PPT内容撰写师。请把页面大纲扩写成可直接放进幻灯片的讲解内容，并**只输出一个 JSON 对象**，不要任何解释文字或 Markdown 围栏。
-
-## 规则（必须遵守）
-1. 整段回复必须是一个合法 JSON 对象，第一字符是 `{{`，最后一字符是 `}}`。
-2. 禁止使用 Markdown 代码块（不要 ``` 或 ```json）。
-3. 禁止在 JSON 之前或之后写任何文字、注释、说明、客套话。
-4. 字段类型必须严格匹配下面的 schema，缺失字段会被系统判定为生成失败。
-5. key_points 是经过润色的页面结论，保留大纲结构但不要逐字复制。
-6. bullet_points 是对 key_points 的解释性正文，每条补充原因、构成、例子、影响或评价。
-7. 每条 bullet_points 控制在 50 字以内，适合 8-10 分钟演示的单页讲解。
-8. 不要编造用户没有提供的数字、来源或事实；缺少证据时使用定性表述。
-9. 只生成当前页内容，不改变页面主题和事实范围。
-10. 如果用户原始输入包含明确对象（如 TOEFL/IELTS/GRE 等具体测试名），key_points 必须直接包含这些对象的对应分析。
-
-## 当前页信息
-- 页面ID: {page_id}
-- 页面类型: {page_type}
-- 页面标题: {page_title}
-- 副标题: {subtitle}
-- 主题: {topic}
-
-## 大纲要点（写作依据）
-{key_points}
-
-## 用户原始输入
-{user_input}
-
-## 输出 schema（严格遵守）
-{{"title":string,"subtitle":string,"key_points":string[],"bullet_points":string[],"speaker_notes":string}}
-
-## 示例输出
-{{"title":"TOEFL 学术定位","subtitle":"面向北美高校的语言能力测试","key_points":["学术导向","机考形式","四技能覆盖"],"bullet_points":["TOEFL 服务北美高校申请，强调学术英语能力。","采用 iBT 机考形式，整合听说读写四项。","评分逻辑以学术场景任务为核心。"],"speaker_notes":"本页强调 TOEFL 的学术定位与机考结构。"}}"""
+WRITER_SYSTEM = """你只负责输入最后一个page对象指定的这一页，不是整份PPT。
+reference是整篇参考材料，其中的页码和制作指令不能覆盖当前page的type、title和points。
+将当前页大纲写成清晰、准确、适合演示的内容。只返回紧凑JSON对象。
+格式：{"items":[["短标题","解释"]]}；需要讲稿时可加notes。
+每页2至5组，每个标题不超过16个汉字，每个解释不超过45个汉字。
+保留原文的具体对象、结论与必要证据。不编造数据、来源或事实。不要口号、emoji或重复标题。
+图表或表格页只写1至2组重点解释。当前page.type为chart且来源提供真实数值时，必须加chart_data:{"title":"","data":{"labels":[],"values":[]}}，不要输出table_data。
+表格页可以加table_data:{"headers":[],"rows":[[]]}，最多4列5行，仅整理来源中已有的比较信息。
+无法形成图表时用文本解释。无需输出标题、副标题、配色、坐标、null或空字段。"""
 
 
 def writer_node(state: AgentState) -> AgentState:
@@ -78,9 +55,19 @@ def writer_node(state: AgentState) -> AgentState:
 
     spec = state["project"].spec
     topic = spec.get("topic", "未命名主题")
-    user_input = state.get("user_input", "")
+    user_input = state.get("user_input", "") or spec.get("source_summary", "")
 
-    # Generate content
+    # Covers and navigation reuse the approved outline; no expansion call is needed.
+    if page.page_type.value in ("cover", "thankyou", "toc"):
+        page.title = outline_item.get("page_title", page.title)
+        page.subtitle = outline_item.get("subtitle", "")
+        page.key_points = ((outline_item.get("key_points") or [item.get("page_title", "") for item in state.get("outline", [])
+                            if item.get("page_type") not in ("cover", "toc", "thankyou")]
+                           ) if page.page_type.value == "toc" else [])
+        page.bullet_points = []
+        page.speaker_notes = ""
+        return state
+
     try:
         content_data = _generate_page_content(
             page_id=page_id,
@@ -90,6 +77,8 @@ def writer_node(state: AgentState) -> AgentState:
             topic=topic,
             key_points=outline_item.get("key_points", []),
             user_input=user_input,
+            feedback=page.review_issues,
+            include_notes=bool(spec.get("speaker_notes", False)),
         )
 
         # Update page state
@@ -98,6 +87,8 @@ def writer_node(state: AgentState) -> AgentState:
         page.key_points = content_data.get("key_points", [])
         page.bullet_points = content_data.get("bullet_points", [])
         page.speaker_notes = content_data.get("speaker_notes", "")
+        page.chart_data = content_data.get("chart_data")
+        page.table_data = content_data.get("table_data")
 
         state["pages"][page_id] = page
 
@@ -122,41 +113,52 @@ def _generate_page_content(
     topic: str,
     key_points: List[str],
     user_input: str = "",
+    feedback: Optional[List[Dict]] = None,
+    include_notes: bool = False,
 ) -> Dict[str, Any]:
     """Generate page content using LLM with structured output."""
-    key_points_text = "\n".join([f"- {kp}" for kp in key_points]) if key_points else "（无大纲要点）"
-
-    prompt = WRITER_PROMPT.format(
-        page_id=page_id,
-        page_type=page_type,
-        page_title=page_title,
-        subtitle=subtitle or "（无）",
-        topic=topic,
-        key_points=key_points_text,
-        user_input=user_input or "（无额外上下文）",
-    )
-
-    llm = get_llm_client()
-    response = llm.generate(prompt=prompt, system="", max_tokens=327680)
-
-    # Extract and parse JSON
-    json_text = extract_json_from_text(response)
-
-    try:
-        data = json.loads(json_text)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"JSON解析失败: {e}")
-
-    # Basic validation
+    # Put stable source before page-specific data to preserve a reusable prefix.
+    from ..context import page_source
+    relevant = page_source(user_input, page_title, key_points)
+    shared = {"topic": topic, "source": user_input if relevant == user_input else user_input[:500]}
+    page_request = {"type": page_type, "title": page_title, "points": key_points}
+    if relevant != user_input:
+        page_request["source_passages"] = relevant
+    if feedback:
+        page_request["fix"] = [{"problem": issue.get("description", ""),
+                                 "action": issue.get("suggested_action", "")} for issue in feedback[:3]]
+    if include_notes:
+        page_request["notes"] = "附80字以内讲稿"
+    prompt = json.dumps({"reference":shared}, ensure_ascii=False, separators=(",", ":")) + "\n" + json.dumps(
+        {"page":page_request}, ensure_ascii=False, separators=(",", ":"))
+    llm = get_llm_client("writer")
+    response = llm.generate(prompt=prompt, system=WRITER_SYSTEM,
+                            max_tokens=1400 if page_type in ("chart", "table") else 1000,
+                            temperature=0.35, json_object=True, cache=not feedback)
+    data = json.loads(extract_json_from_text(response))
     if not isinstance(data, dict):
         raise ValueError("响应不是JSON对象")
-
-    # Ensure required fields
-    data.setdefault("title", page_title)
-    data.setdefault("key_points", key_points)
-    data.setdefault("bullet_points", [])
-    data.setdefault("speaker_notes", "")
-
+    if "items" in data:
+        items = data["items"]
+        if not isinstance(items, list) or not 1 <= len(items) <= 5:
+            raise ValueError("items必须包含1至5组内容")
+        if not all(isinstance(item, list) and len(item) == 2 and all(isinstance(v,str) for v in item)
+                   for item in items):
+            raise ValueError("items每项必须是[标题,解释]两个字符串")
+        data = {"title": page_title, "subtitle": subtitle,
+                "key_points": [item[0] for item in items],
+                "bullet_points": [item[1] for item in items],
+                "speaker_notes": data.get("notes", ""),
+                **{key: data[key] for key in ("chart_data", "table_data") if key in data}}
+    # Keep compatibility with previously stored/full-contract responses.
+    for key in ("title", "subtitle", "speaker_notes"):
+        if not isinstance(data.get(key), str):
+            raise ValueError(f"字段 {key} 必须是字符串")
+    for key in ("key_points", "bullet_points"):
+        if not isinstance(data.get(key), list) or not all(isinstance(v, str) for v in data[key]):
+            raise ValueError(f"字段 {key} 必须是字符串数组")
+    if not include_notes:
+        data["speaker_notes"] = ""
     return data
 
 

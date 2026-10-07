@@ -12,6 +12,8 @@ class ProjectStatus(str, Enum):
 
     IDLE = "idle"
     PARSING = "parsing"
+    PARSED = "parsed"
+    EDITING = "editing"
     PLANNING = "planning"
     PLANNED = "planned"
     GENERATING = "generating"

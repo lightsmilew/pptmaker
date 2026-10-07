@@ -89,8 +89,8 @@ def create_ppt_agent_graph() -> StateGraph:
     )
 
     # Revision loops
-    graph.add_edge("revise_layout", "design_layout")
-    graph.add_edge("revise_content", "write_page")
+    graph.add_edge("revise_layout", "render_preview")
+    graph.add_edge("revise_content", "design_layout")
 
     # After finalization, decide next page or global review
     graph.add_conditional_edges(
@@ -104,6 +104,7 @@ def create_ppt_agent_graph() -> StateGraph:
 
     graph.add_edge("global_review", "render_pptx")
     graph.add_edge("render_pptx", END)
+    graph.add_edge("handle_error", END)
 
     return graph
 
@@ -133,10 +134,10 @@ def route_page_review(state: AgentState) -> Literal[
         return review_status
 
     if review_status == "needs_revision":
-        # Iteration limit reached - accept current state.
+        # Stop bounded repair without pretending that a failing page passed.
         critic_iteration = state.get("critic_iteration", 0)
-        if critic_iteration >= 4:
-            return "approve"
+        if critic_iteration >= max(1, min(4, int(os.getenv("PPT_MAX_REVIEW_ROUNDS", "2")))):
+            return "failed"
 
         # Pick revision path based on majority issue ownership.
         issues = page.review_issues or []
@@ -152,6 +153,7 @@ def route_after_finalize(state: AgentState) -> Literal["next_page", "global_revi
     next_page = get_next_pending_page(state)
     if next_page:
         state["current_page_id"] = next_page
+        state["critic_iteration"] = 0
         return "next_page"
     return "global_review"
 
@@ -194,12 +196,6 @@ def render_preview_node(state: AgentState) -> AgentState:
 
 
 def critic_review_node(state: AgentState) -> AgentState:
-    state["critic_iteration"] = state.get("critic_iteration", 0) + 1
-    page_id = state.get("current_page_id")
-    if page_id:
-        page = state["pages"].get(page_id)
-        if page:
-            page.iteration = state["critic_iteration"]
     state["workflow"].current_node = "critic_review"
     return _nodes.critic_node(state)
 

@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 from ..state import AgentState
 from ...llm import get_llm_client
 from ...contracts.json_utils import extract_json_from_text
+from ...contracts.json_contract import STRICT_JSON_SYSTEM
 
 
 GLOBAL_REVIEW_PROMPT = """你是专业的PPT全局评审专家。请评估整个PPT的一致性和整体质量。
@@ -119,8 +120,8 @@ def _perform_global_review(state: AgentState) -> Dict[str, Any]:
     )
 
     # Call LLM
-    llm = get_llm_client()
-    response = llm.generate(prompt=prompt, system="", max_tokens=327680)
+    llm = get_llm_client("global_reviewer")
+    response = llm.generate(prompt=prompt, system=STRICT_JSON_SYSTEM, max_tokens=1600)
 
     # Parse response
     json_text = extract_json_from_text(response)
@@ -175,8 +176,8 @@ def perform_global_review(
         page_list=page_list_text,
     )
 
-    llm = get_llm_client()
-    response = llm.generate(prompt=prompt, system="", max_tokens=327680)
+    llm = get_llm_client("global_reviewer")
+    response = llm.generate(prompt=prompt, system=STRICT_JSON_SYSTEM, max_tokens=1600)
 
     json_text = extract_json_from_text(response)
 

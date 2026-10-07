@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 from .iteration import IterationRecord
 
@@ -47,6 +47,8 @@ class PreviewInfo(BaseModel):
 class PageState(BaseModel):
     """Complete page state including content, layout, preview, and review history."""
 
+    model_config = ConfigDict(validate_assignment=True)
+
     page_id: str
     page_type: PageType = PageType.CONTENT
 
@@ -68,6 +70,7 @@ class PageState(BaseModel):
     preview: Optional[PreviewInfo] = None
 
     # Review
+    review_method: Optional[str] = None
     review_status: Optional[str] = None
     review_score: Optional[float] = None
     review_issues: List[Dict[str, Any]] = Field(default_factory=list)
@@ -132,6 +135,7 @@ class PageState(BaseModel):
             },
             "preview": self.preview.model_dump() if self.preview else None,
             "review": {
+                "method": self.review_method,
                 "status": self.review_status,
                 "score": self.review_score,
                 "issues": self.review_issues,

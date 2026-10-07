@@ -1,4 +1,4 @@
-// Card component - Soft UI Style
+// Card component - Folio shared design system
 
 import { forwardRef, HTMLAttributes } from 'react';
 import { clsx } from 'clsx';
@@ -14,10 +14,10 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(
       <div
         ref={ref}
         className={clsx(
-          'bg-white rounded-3xl shadow-soft-lg p-6 md:p-8',
+          'bg-white rounded-lg border border-[#dfe4da] p-6',
           'transition-all duration-300 ease-out',
-          hover && 'hover:shadow-soft-xl hover:-translate-y-1 cursor-pointer',
-          selected && 'ring-2 ring-indigo-500/30 ring-offset-2',
+          hover && 'hover:border-[#a8b7ac] cursor-pointer',
+          selected && 'ring-1 ring-[#29483e]',
           className
         )}
         {...props}
@@ -40,7 +40,7 @@ CardHeader.displayName = 'CardHeader';
 
 export const CardTitle = forwardRef<HTMLHeadingElement, HTMLAttributes<HTMLHeadingElement>>(
   ({ className, ...props }, ref) => (
-    <h3 ref={ref} className={clsx('text-xl md:text-2xl font-semibold text-gray-800', className)} {...props} />
+    <h3 ref={ref} className={clsx('text-sm font-semibold text-[#27342d]', className)} {...props} />
   )
 );
 
@@ -48,7 +48,7 @@ CardTitle.displayName = 'CardTitle';
 
 export const CardDescription = forwardRef<HTMLParagraphElement, HTMLAttributes<HTMLParagraphElement>>(
   ({ className, ...props }, ref) => (
-    <p ref={ref} className={clsx('text-sm text-gray-400 mt-2', className)} {...props} />
+    <p ref={ref} className={clsx('text-sm text-gray-500 mt-2', className)} {...props} />
   )
 );
 

@@ -7,10 +7,11 @@ export default {
   theme: {
     extend: {
       colors: {
-        background: '#F8FAFC',
+        folio: { paper: '#FAF9F6', ink: '#27342D', green: '#29483E', sage: '#EDF1E8', border: '#DFE4DA', muted: '#74816F' },
+        background: '#FAF9F6',
         foreground: {
-          DEFAULT: '#1E293B',
-          muted: '#64748B',
+          DEFAULT: '#27342D',
+          muted: '#74816F',
           light: '#94A3B8',
         },
         surface: {

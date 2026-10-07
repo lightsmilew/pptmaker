@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 
 // Backend base URL for both REST + WebSocket proxying in dev.
-// Override with VITE_API_BASE / VITE_WS_BASE env vars when needed.
+// Override with VITE_BACKEND_HOST / VITE_BACKEND_WS_HOST env vars when needed.
 const BACKEND_HOST = process.env.VITE_BACKEND_HOST ?? 'http://localhost:8000';
 const BACKEND_WS_HOST = process.env.VITE_BACKEND_WS_HOST ?? BACKEND_HOST;
 

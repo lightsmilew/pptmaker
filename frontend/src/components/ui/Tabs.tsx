@@ -1,4 +1,4 @@
-// Tabs component - Soft UI Style
+// Tabs component - Folio shared design system
 
 import { forwardRef } from 'react';
 import * as TabsPrimitive from '@radix-ui/react-tabs';
@@ -13,7 +13,7 @@ export const TabsList = forwardRef<
   <TabsPrimitive.List
     ref={ref}
     className={clsx(
-      'inline-flex h-12 p-1.5 bg-gray-100 rounded-2xl gap-1',
+      'inline-flex h-10 p-1 bg-[#edf1e8] rounded-md gap-1',
       className
     )}
     {...props}
@@ -28,12 +28,12 @@ export const TabsTrigger = forwardRef<
   <TabsPrimitive.Trigger
     ref={ref}
     className={clsx(
-      'inline-flex items-center justify-center whitespace-nowrap px-5 py-2.5 rounded-xl text-sm font-medium',
+      'inline-flex items-center justify-center whitespace-nowrap px-4 py-2 rounded-md text-xs font-medium',
       'text-gray-500 transition-all duration-200',
       'hover:text-gray-700',
-      'focus:outline-none focus:ring-2 focus:ring-indigo-500/50',
+      'focus:outline-none focus:ring-2 focus:ring-[#78917b]',
       'disabled:pointer-events-none disabled:opacity-50',
-      'data-[state=active]:bg-white data-[state=active]:text-gray-800 data-[state=active]:shadow-soft-sm',
+      'data-[state=active]:bg-white data-[state=active]:text-[#29483e]',
       className
     )}
     {...props}
@@ -48,7 +48,7 @@ export const TabsContent = forwardRef<
   <TabsPrimitive.Content
     ref={ref}
     className={clsx(
-      'mt-6 focus:outline-none focus:ring-2 focus:ring-indigo-500/50',
+      'mt-6 focus:outline-none focus:ring-2 focus:ring-[#78917b]',
       className
     )}
     {...props}

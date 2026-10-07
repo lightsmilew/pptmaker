@@ -1,20 +1,20 @@
-// Badge component - Soft UI Style
+// Badge component - Folio shared design system
 
 import { cva, type VariantProps } from 'class-variance-authority';
 import { clsx } from 'clsx';
 
 const badgeVariants = cva(
-  'inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200',
+  'inline-flex items-center px-2 py-1 rounded-md text-[10px] font-medium transition-all duration-200',
   {
     variants: {
       variant: {
         default: 'bg-gray-100 text-gray-600',
-        primary: 'bg-indigo-100 text-indigo-600',
-        secondary: 'bg-pink-100 text-pink-600',
-        success: 'bg-emerald-100 text-emerald-600',
+        primary: 'bg-[#e8eee5] text-[#52644d]',
+        secondary: 'bg-[#edf1e8] text-[#52644d]',
+        success: 'bg-[#e8eee5] text-[#52644d]',
         warning: 'bg-amber-100 text-amber-600',
         error: 'bg-red-100 text-red-600',
-        info: 'bg-cyan-100 text-cyan-600',
+        info: 'bg-[#edf1e8] text-[#52644d]',
       },
     },
     defaultVariants: {

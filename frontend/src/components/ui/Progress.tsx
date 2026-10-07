@@ -1,4 +1,4 @@
-// Progress component - Soft UI Style
+// Progress component - Folio shared design system
 
 import * as ProgressPrimitive from '@radix-ui/react-progress';
 import { clsx } from 'clsx';
@@ -12,8 +12,8 @@ interface ProgressProps {
 }
 
 const variantStyles = {
-  default: 'bg-indigo-600',
-  success: 'bg-emerald-500',
+  default: 'bg-[#547459]',
+  success: 'bg-[#547459]',
   warning: 'bg-amber-500',
   error: 'bg-red-500',
 };
@@ -24,12 +24,12 @@ export function Progress({ value, max = 100, className, showLabel = false, varia
   return (
     <div className={clsx('w-full', className)}>
       <ProgressPrimitive.Root
-        className="relative h-3 w-full overflow-hidden rounded-full bg-gray-100 shadow-soft-sm"
+        className="relative h-1 w-full overflow-hidden rounded-full bg-gray-100"
         value={value}
         max={max}
       >
         <ProgressPrimitive.Indicator
-          className={clsx('h-full rounded-full transition-all duration-300 ease-out shadow-soft-sm', variantStyles[variant])}
+          className={clsx('h-full rounded-full transition-all duration-300 ease-out', variantStyles[variant])}
           style={{ width: `${percentage}%` }}
         />
       </ProgressPrimitive.Root>

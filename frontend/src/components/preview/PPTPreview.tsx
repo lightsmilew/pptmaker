@@ -13,7 +13,7 @@ interface PPTPreviewProps {
 const statusColors: Record<PageStatus, string> = {
   pending: 'bg-gray-100 text-gray-600',
   writing: 'bg-blue-100 text-blue-600',
-  designing: 'bg-purple-100 text-purple-600',
+  designing: 'bg-[#edf1e8] text-[#52644d]',
   rendering: 'bg-yellow-100 text-yellow-600',
   reviewing: 'bg-orange-100 text-orange-600',
   revising: 'bg-orange-100 text-orange-600',
@@ -28,7 +28,9 @@ export function PPTPreview({ page, className, showPreviewImage = true }: PPTPrev
   useEffect(() => {
     if (page?.preview?.image_path && showPreviewImage) {
       const previewPath = page.preview.image_path;
-      const url = previewPath.replace(/\\/g, '/').replace(/^storage\//, '/storage/');
+      const normalized = previewPath.replace(/\\/g, '/');
+      const marker = normalized.lastIndexOf('/previews/');
+      const url = marker >= 0 ? '/storage' + normalized.slice(marker) : normalized.replace(/^\.?\/?storage\//, '/storage/');
       setPreviewUrl(url);
     } else {
       setPreviewUrl(null);
@@ -37,9 +39,9 @@ export function PPTPreview({ page, className, showPreviewImage = true }: PPTPrev
 
   if (!page) {
     return (
-      <div className={clsx('flex items-center justify-center bg-gray-50 rounded-3xl shadow-soft-md', className)}>
+      <div className={clsx('flex items-center justify-center bg-gray-50 rounded-lg border border-[#e1e5dc]', className)}>
         <div className="text-center p-8">
-          <div className="w-28 h-20 mx-auto mb-5 bg-white rounded-2xl shadow-soft-sm flex items-center justify-center">
+          <div className="w-28 h-20 mx-auto mb-5 bg-white rounded-md border border-[#e1e5dc] flex items-center justify-center">
             <span className="text-5xl text-gray-300">?</span>
           </div>
           <p className="text-gray-500 font-medium">选择或生成页面后在此预览</p>
@@ -71,7 +73,7 @@ export function PPTPreview({ page, className, showPreviewImage = true }: PPTPrev
   return (
     <div
       className={clsx(
-        'bg-white rounded-3xl overflow-hidden shadow-soft-xl',
+        'bg-white rounded-lg border border-[#e1e5dc] overflow-hidden',
         'aspect-video relative',
         className
       )}
@@ -82,6 +84,7 @@ export function PPTPreview({ page, className, showPreviewImage = true }: PPTPrev
           src={previewUrl}
           alt={`${page.page_id} preview`}
           className="absolute inset-0 w-full h-full object-cover"
+          onError={() => setPreviewUrl(null)}
         />
       )}
 
@@ -89,7 +92,7 @@ export function PPTPreview({ page, className, showPreviewImage = true }: PPTPrev
       <div
         className={clsx(
           'absolute inset-0 flex flex-col p-6',
-          previewUrl ? 'bg-black/30' : ''
+          previewUrl ? 'hidden' : ''
         )}
         style={!previewUrl ? { backgroundColor: background } : {}}
       >
@@ -103,18 +106,18 @@ export function PPTPreview({ page, className, showPreviewImage = true }: PPTPrev
           </span>
           <div className="flex items-center gap-2">
             {page.iteration && page.iteration > 1 && (
-              <span className="text-xs bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded-full">
+              <span className="text-xs bg-[#edf1e8] text-[#52644d] px-2 py-0.5 rounded-full">
                 迭代 {page.iteration}
               </span>
             )}
-            {page.review?.score && (
+            {page.review?.score != null && (
               <span className={clsx(
                 'text-xs font-semibold px-2 py-0.5 rounded-full',
                 page.review.score >= 85 ? 'bg-green-100 text-green-700' :
                 page.review.score >= 70 ? 'bg-yellow-100 text-yellow-700' :
                 'bg-red-100 text-red-700'
               )}>
-                {page.review.score}分
+                {page.review.method === 'local_geometry' ? '排版检查' : page.review.method === 'vision' ? '视觉复核' : '检查结果'} {page.review.score}
               </span>
             )}
             <span className="text-xs text-gray-400">{page.page_id}</span>
@@ -156,7 +159,7 @@ export function PPTPreview({ page, className, showPreviewImage = true }: PPTPrev
                   <li key={index} className="flex items-start gap-2">
                     <span className={clsx(
                       'flex-shrink-0 w-5 h-5 rounded-lg flex items-center justify-center text-xs font-semibold',
-                      previewUrl ? 'bg-white/80 text-gray-700' : 'bg-indigo-100 text-indigo-600'
+                      previewUrl ? 'bg-white/80 text-gray-700' : 'bg-[#edf1e8] text-[#52644d]'
                     )}>
                       {index + 1}
                     </span>
@@ -257,14 +260,14 @@ export function SlideThumbnail({ page, isActive, onClick }: SlideThumbnailProps)
         </div>
       </div>
       {/* Review score badge */}
-      {page.review?.score && (
+      {page.review?.score != null && (
         <div className={clsx(
           'absolute top-1 right-1 text-[8px] font-bold px-1 py-0.5 rounded-full',
           page.review.score >= 85 ? 'bg-green-500 text-white' :
           page.review.score >= 70 ? 'bg-yellow-500 text-white' :
           'bg-red-500 text-white'
         )}>
-          {page.review.score}
+          {page.review.method === 'local_geometry' ? '排版检查' : page.review.method === 'vision' ? '视觉复核' : '检查结果'} {page.review.score}
         </div>
       )}
     </button>
