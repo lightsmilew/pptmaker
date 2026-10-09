@@ -1,5 +1,14 @@
 // Test environment setup
 import '@testing-library/jest-dom/vitest';
+// Node channels connect independent test workers; browser tabs are verified
+// separately. Component tests keep sessions isolated to their own document.
+Object.defineProperty(globalThis, 'BroadcastChannel', { value: undefined, configurable: true, writable: true });
+Object.defineProperty(window, 'scrollTo', { value: () => {}, configurable: true, writable: true });
+// jsdom has no layout or pointer capture; Radix uses these browser APIs.
+Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { value: () => {}, configurable: true });
+Object.defineProperty(HTMLElement.prototype, 'hasPointerCapture', { value: () => false, configurable: true });
+Object.defineProperty(HTMLElement.prototype, 'setPointerCapture', { value: () => {}, configurable: true });
+Object.defineProperty(HTMLElement.prototype, 'releasePointerCapture', { value: () => {}, configurable: true });
 import { afterEach, vi } from 'vitest';
 import { cleanup } from '@testing-library/react';
 

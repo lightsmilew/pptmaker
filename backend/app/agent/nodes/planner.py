@@ -15,6 +15,7 @@ PLANNER_PROMPT = """你是一个专业的PPT大纲规划师。请根据项目需
 目标受众: {audience}
 页数要求: {page_count}页
 风格: {style}
+编排方式: {layout_mode}；内容密度: {content_density}
 需要封面: {needs_cover}
 需要目录: {needs_toc}
 需要总结: {needs_summary}
@@ -48,10 +49,10 @@ PLANNER_PROMPT = """你是一个专业的PPT大纲规划师。请根据项目需
 ]
 
 ## 布局类型参考
-- 标题正文: 适合一般内容页
-- 左右双栏: 适合对比、分类内容
-- 上下分区: 适合流程、步骤说明
-- 三列要点: 适合并列内容
+- auto: 一般内容页，由系统选择多样版式；不要所有页面使用同一种结构
+- comparison: 需要比较两个对象时使用左右双栏
+- timeline: 适合流程、时间顺序、步骤说明
+- cards_grid: 适合短小、并列的模块
 - 数据图表: 适合需要图表的页面
 - 编号目录: 适合目录页
 - 结论重点: 适合总结页
@@ -120,6 +121,7 @@ def planner_node(state: AgentState) -> AgentState:
         audience=spec.get("audience", "通用受众"),
         page_count=page_count,
         style=spec.get("style", "简约专业"),
+        layout_mode=spec.get("layout_mode", "auto"), content_density=spec.get("content_density", "balanced"),
         needs_cover=spec.get("needs_cover", True),
         needs_toc=spec.get("needs_toc", True),
         needs_summary=spec.get("needs_summary", True),
@@ -249,6 +251,7 @@ def generate_outline(
         audience=spec.get("audience", "通用受众"),
         page_count=page_count,
         style=spec.get("style", "简约专业"),
+        layout_mode=spec.get("layout_mode", "auto"), content_density=spec.get("content_density", "balanced"),
         needs_cover=spec.get("needs_cover", True),
         needs_toc=spec.get("needs_toc", True),
         needs_summary=spec.get("needs_summary", True),

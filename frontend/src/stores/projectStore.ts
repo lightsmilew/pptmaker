@@ -9,7 +9,6 @@ import type {
   PPTProject,
   PPTProjectSpec,
   PageData,
-  ProjectStatus,
   PageUpdateEvent,
   ParallelGenerationStatus,
   ReviewResult,
@@ -44,7 +43,7 @@ function deepMerge<T extends Record<string, any>>(target: T, source: Partial<T>)
 
 export type CommandDispatcher = (cmd: WSCommand) => void;
 
-export interface DraftFile { filename: string; content: string; size: number }
+export interface DraftFile { upload_id?: string; filename: string; size: number }
 
 interface ProjectState {
   draftInput: string;
@@ -58,6 +57,7 @@ interface ProjectState {
   error: string | null;
   parallelStatus: ParallelGenerationStatus | null;
   lastDownloadUrl: string | null;
+  workflowPending: boolean;
 
   /** Wired by useWebSocket once the socket is open. */
   sendCommand: CommandDispatcher | null;
@@ -69,6 +69,7 @@ interface ProjectState {
   createProject: (spec?: PPTProjectSpec, userInput?: string) => Promise<string>;
 
   // WebSocket-driven actions
+  runWorkflow: () => void;
   parseInput: () => void;
   planOutline: () => void;
   generateParallel: () => void;
@@ -80,7 +81,6 @@ interface ProjectState {
 
   // Setters (called from useWebSocket message handlers)
   setProject: (project: PPTProject) => void;
-  setStatus: (status: ProjectStatus, step?: string, progress?: number) => void;
   setError: (error: string | null) => void;
   setLoading: (loading: boolean) => void;
   setSendCommand: (dispatcher: CommandDispatcher | null) => void;
@@ -122,6 +122,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   error: null,
   parallelStatus: null,
   lastDownloadUrl: null,
+  workflowPending: false,
   sendCommand: null,
   pendingCommands: [],
 
@@ -133,8 +134,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const project = await api.createProject({
         spec,
         user_input: userInput,
+        uploaded_files: get().draftFiles.filter(file => file.upload_id).map(file => ({ upload_id:file.upload_id })),
       });
-      set({ project, isLoading: false, parallelStatus: null, lastDownloadUrl: null, pendingCommands: [], sendCommand: null });
+      set({ project, isLoading: false, parallelStatus: null, lastDownloadUrl: null, pendingCommands: [], sendCommand: null, workflowPending:false });
       return project.id;
     } catch (err) {
       set({ error: (err as Error).message, isLoading: false });
@@ -144,34 +146,20 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   // ---------- WebSocket commands ----------
 
-  parseInput: () => { get().setStatus('parsing', '正在整理内容'); _send(get(), { type: 'parse_input' }); },
+  runWorkflow: () => { set({workflowPending:true,error:null}); _send(get(), { type:'run_workflow' }); },
 
-  planOutline: () => { get().setStatus('planning', '正在规划大纲'); _send(get(), { type: 'plan_outline' }); },
+  parseInput: () => _send(get(), { type: 'parse_input' }),
+
+  planOutline: () => _send(get(), { type: 'plan_outline' }),
 
   generateParallel: () => {
     const { project } = get();
     if (!project) return;
-    get().setStatus('generating', '开始制作页面', 30);
-    const totalPages = project.pages?.length
-      || project.outline?.length
-      || project.spec?.page_count
-      || 8;
-    const pagesStatus: Record<string, PageData['status']> = {};
-    (project.pages || []).forEach((p) => {
-      pagesStatus[p.page_id] = 'pending';
-    });
-    set({
-      parallelStatus: {
-        total_pages: totalPages,
-        completed_pages: 0,
-        failed_pages: 0,
-        pages_status: pagesStatus,
-      },
-    });
+    set({workflowPending:true,error:null});
     _send(get(), { type: 'generate_parallel' });
   },
 
-  renderPPTX: () => { get().setStatus('rendering', '正在导出文件'); _send(get(), { type: 'render_pptx' }); },
+  renderPPTX: () => { set({workflowPending:true,error:null}); _send(get(), { type: 'render_pptx' }); },
 
   updateSpec: (patch) => {
     const cmd: WSCommand<UpdateSpecCommand> = {
@@ -201,22 +189,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   // ---------- Setters ----------
 
-  setProject: (project) => set(state => ({ project, lastDownloadUrl: project.download_url ?? (state.project?.id === project.id ? state.lastDownloadUrl : null), ...(state.project?.id !== project.id ? { parallelStatus: null, pendingCommands: [], sendCommand: null, error: null } : {}) })),
+  setProject: (project) => set(state => ({ project, lastDownloadUrl: Object.prototype.hasOwnProperty.call(project,'download_url') ? project.download_url ?? null : (state.project?.id === project.id ? state.lastDownloadUrl : null), ...(!state.pendingCommands.length && ['completed','failed'].includes(project.status) ? {workflowPending:false} : {}), ...(state.project?.id !== project.id ? { parallelStatus: null, pendingCommands: [], sendCommand: null, error: null, workflowPending:false } : {}) })),
 
-  setStatus: (status, step, progress) => {
-    const { project } = get();
-    if (!project) return;
-    set({
-      project: {
-        ...project,
-        status,
-        current_step: step ?? project.current_step,
-        progress: progress ?? project.progress,
-      },
-    });
-  },
-
-  setError: (error) => set({ error }),
+  setError: (error) => set({ error, ...(error ? {workflowPending:false} : {}) }),
 
   setLoading: (loading) => set({ isLoading: loading }),
 
@@ -237,15 +212,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   handleStatePatch: (project) => {
     const existing = get().project;
-    if (existing) {
-      set({ project: deepMerge(existing, project) });
-    } else {
-      set({ project });
-    }
+    set({ project: existing ? deepMerge(existing, project) : project,
+      ...(Object.prototype.hasOwnProperty.call(project,'download_url') ? {lastDownloadUrl:project.download_url ?? null} : {}),
+      ...(project.status ? {workflowPending:false} : {}),
+      ...(Object.prototype.hasOwnProperty.call(project,'error') ? {error:project.error || null} : {}) });
   },
 
   handlePageUpdated: (event) => {
-    const { project, parallelStatus } = get();
+    const { project } = get();
     if (!project) return;
 
     const updatedPages = (project.pages || []).map((page) => {
@@ -261,21 +235,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       return page;
     });
 
-    let newParallelStatus = parallelStatus;
-    if (parallelStatus) {
-      const pagesStatus = { ...parallelStatus.pages_status };
-      pagesStatus[event.page_id] = event.status;
-      newParallelStatus = {
-        ...parallelStatus,
-        pages_status: pagesStatus,
-        completed_pages: Object.values(pagesStatus).filter((s) => s === 'completed').length,
-        failed_pages: Object.values(pagesStatus).filter((s) => s === 'failed').length,
-      };
-    }
-
     set({
       project: { ...project, pages: updatedPages },
-      parallelStatus: newParallelStatus,
     });
   },
 
@@ -286,12 +247,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       page.page_id === event.page_id
         ? {
             ...page,
-            preview: {
-              image_path: event.image_path,
-              width: 1600,
-              height: 900,
-              rendered_at: new Date().toISOString(),
-            },
+            preview: event.preview,
             iteration: event.iteration ?? page.iteration,
           }
         : page
@@ -308,12 +264,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       score: event.score,
       issues: event.issues,
       suggestions: event.suggestions,
-      next_action:
-        event.status === 'approved'
-          ? 'approve'
-          : event.status === 'needs_revision'
-            ? 'revise_layout'
-            : 'failed',
+      warning: event.warning,
     };
     const updatedPages = (project.pages || []).map((page) =>
       page.page_id === event.page_id ? { ...page, review } : page
@@ -326,20 +277,16 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   handleProgress: (step, progress) => {
-    get().setStatus('generating', step, progress);
+    const project = get().project;
+    if (project) set({project:{...project,current_step:step,progress}});
   },
 
   handleCompleted: (event) => {
     const { project } = get();
     if (!project) return;
     set({
-      project: {
-        ...project,
-        status: 'completed',
-        current_step: '导出完成',
-        progress: 100,
-      },
       lastDownloadUrl: event.download_url,
+      workflowPending: false,
     });
   },
 
@@ -352,6 +299,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       parallelStatus: null,
       lastDownloadUrl: null,
       pendingCommands: [],
+      workflowPending: false,
     });
   },
 }));

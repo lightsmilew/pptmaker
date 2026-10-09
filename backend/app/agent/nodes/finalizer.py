@@ -3,6 +3,7 @@
 from typing import Any, Dict, List, Optional
 
 from ...models.page import PageStatus
+from ..review_policy import can_finalize
 from ..state import AgentState
 from ..state import (
     get_next_pending_page,
@@ -16,7 +17,7 @@ def finalizer_node(state: AgentState) -> AgentState:
     Finalize current page and determine next action.
 
     This node:
-    - Marks current page as completed if approved
+    - Completes usable pages while preserving any unresolved review advice
     - Updates workflow state
     - Determines if we should proceed to next page or finish
     """
@@ -30,9 +31,12 @@ def finalizer_node(state: AgentState) -> AgentState:
 
     state["workflow"].current_node = "finalizer"
 
-    # Check if page is approved
-    if page.review_status == "approved":
+    # Completion records usable output; review status remains independent.
+    if can_finalize(page):
         page.status = PageStatus.COMPLETED
+        page.error = None
+        if page.review_status != "approved" and not page.review_warning:
+            page.review_warning = "此页仍有检查建议，可下载当前版本或继续调整。"
         state["pages"][page_id] = page
         state["workflow"].add_completed_page(page_id)
 
@@ -67,8 +71,11 @@ def finalize_page(page_id: str, state: AgentState) -> Dict[str, Any]:
     if not page:
         return {"error": "Page not found"}
 
-    if page.review_status == "approved":
+    if can_finalize(page):
         page.status = PageStatus.COMPLETED
+        page.error = None
+        if page.review_status != "approved" and not page.review_warning:
+            page.review_warning = "此页仍有检查建议，可下载当前版本或继续调整。"
         state["pages"][page_id] = page
         state["workflow"].add_completed_page(page_id)
 
@@ -77,7 +84,7 @@ def finalize_page(page_id: str, state: AgentState) -> Dict[str, Any]:
 
     return {
         "page_id": page_id,
-        "status": "completed",
+        "status": page.status.value,
         "next_page_id": next_page_id,
         "all_completed": all_pages_completed(state),
     }

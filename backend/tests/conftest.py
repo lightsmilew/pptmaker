@@ -33,6 +33,20 @@ def pytest_configure(config):
 
 # ============= Async Event Loop =============
 
+@pytest.fixture
+def authenticated_client():
+    """Use real server sessions in API tests; no authentication bypass."""
+    def make(email="author@example.test", name="测试作者"):
+        from fastapi.testclient import TestClient
+        from app.main import app
+        client = TestClient(app)
+        response = client.post("/api/v1/auth/register", json={"email":email,"password":"Test-password-123","display_name":name},
+                               headers={"X-Folio-Request":"1"})
+        assert response.status_code == 201, response.text
+        client.headers["X-CSRF-Token"] = response.json()["csrf_token"]
+        return client
+    return make
+
 @pytest.fixture(scope="session")
 def event_loop():
     """Session-scoped event loop for async tests."""

@@ -162,7 +162,8 @@ class LLMClient:
             options["reasoning_effort"] = os.getenv("DEEPSEEK_" + self.role.upper() + "_EFFORT",
                                                   os.getenv("DEEPSEEK_REASONING_EFFORT", "none"))
         # Include all effective settings and credentials (hashed only) to isolate providers/accounts.
-        payload = json.dumps([self.config.model_dump(), messages, options],
+        from ..storage.auth_repository import user_context
+        payload = json.dumps([user_context.get(), self.config.model_dump(), messages, options],
                              ensure_ascii=False, sort_keys=True, default=str)
         cache_key = hashlib.sha256(payload.encode("utf-8")).hexdigest() if cache else None
         cached = None

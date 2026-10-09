@@ -3,7 +3,7 @@
 import json
 import os
 from typing import Dict, Any, Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from .sqlite_repository import ProjectRepository
 
@@ -23,8 +23,8 @@ class MemoryStore:
     def create_project(self, project_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new project."""
         data["id"] = project_id
-        data["created_at"] = datetime.now().isoformat()
-        data["updated_at"] = datetime.now().isoformat()
+        data["created_at"] = datetime.now(timezone.utc).isoformat()
+        data["updated_at"] = datetime.now(timezone.utc).isoformat()
         self._projects[project_id] = data
         self._persist(project_id)
         return data
@@ -37,7 +37,7 @@ class MemoryStore:
         """Update project data."""
         if project_id in self._projects:
             self._projects[project_id].update(data)
-            self._projects[project_id]["updated_at"] = datetime.now().isoformat()
+            self._projects[project_id]["updated_at"] = datetime.now(timezone.utc).isoformat()
             self._persist(project_id)
             return self._projects[project_id]
         return None

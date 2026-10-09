@@ -4,12 +4,13 @@ import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 from .config import settings
 from .api.routes import router
 from .api.workspace import router as workspace_router
 from .api.websocket import websocket_handler
+from .api.auth import router as auth_router, allowed_origins
+from .api.files import router as files_router
 
 
 @asynccontextmanager
@@ -35,19 +36,26 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Mount static files for downloads
-os.makedirs(settings.storage_path, exist_ok=True)
-app.mount("/storage", StaticFiles(directory=settings.storage_path), name="storage")
-
 # Include API routes
+app.include_router(auth_router)
+app.include_router(files_router)
 app.include_router(router)
 app.include_router(workspace_router)
+
+
+@app.middleware("http")
+async def private_response_headers(request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith(("/api/", "/storage/")):
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
 
 
 @app.get("/")

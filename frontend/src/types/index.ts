@@ -81,7 +81,8 @@ export interface ReviewDimensions {
 }
 
 export interface ReviewResult {
-  method?: 'local_geometry' | 'vision';
+  method?: 'local_geometry' | 'local_geometry_fallback' | 'vision';
+  warning?: string | null;
   status: ReviewStatus;
   score: number;
   dimensions?: ReviewDimensions;
@@ -142,16 +143,17 @@ export interface PageData {
   };
   preview?: PreviewInfo;
   review?: {
-    method?: 'local_geometry' | 'vision';
+    method?: 'local_geometry' | 'local_geometry_fallback' | 'vision';
     status: ReviewStatus;
     score: number;
     issues: ReviewIssue[];
     suggestions: string[];
+    warning?: string | null;
   };
   iteration: number;
   max_iterations: number;
   status: PageStatus;
-  error?: string;
+  error?: string | null;
 }
 
 // ==================== Project shapes ====================
@@ -161,6 +163,8 @@ export interface PPTProjectSpec {
   audience?: string;
   page_count?: number;
   style?: string;
+  layout_mode?: import('./design').LayoutMode;
+  content_density?: import('./design').ContentDensity;
   needs_cover?: boolean;
   needs_toc?: boolean;
   needs_summary?: boolean;
@@ -204,7 +208,7 @@ export interface PPTProject {
   status: ProjectStatus;
   current_step?: string;
   progress?: number;
-  error?: string;
+  error?: string | null;
   pages: PageData[];
   outline?: OutlineItem[];
   global_review?: GlobalReviewResult;
@@ -229,7 +233,7 @@ export interface OutlineItem {
 export interface CreateProjectRequest {
   spec?: PPTProjectSpec;
   user_input?: string;
-  uploaded_files?: string[];
+  uploaded_files?: { upload_id: string | undefined }[];
 }
 
 // ==================== WebSocket protocol ====================
@@ -250,6 +254,7 @@ export type WSServerEventType =
 /** All client -> server commands sent on /ws/{project_id}. */
 export type WSClientCommandType =
   | 'ping'
+  | 'run_workflow'
   | 'parse_input'
   | 'plan_outline'
   | 'generate_parallel'
@@ -294,7 +299,8 @@ export interface ParallelGenerationStatus {
 }
 
 export interface ReviewCompletedEvent {
-  method?: 'local_geometry' | 'vision';
+  method?: 'local_geometry' | 'local_geometry_fallback' | 'vision';
+  warning?: string | null;
   page_id: string;
   status: ReviewStatus;
   score: number;
@@ -305,6 +311,7 @@ export interface ReviewCompletedEvent {
 export interface PreviewReadyEvent {
   page_id: string;
   image_path: string;
+  preview: PreviewInfo;
   iteration?: number;
 }
 

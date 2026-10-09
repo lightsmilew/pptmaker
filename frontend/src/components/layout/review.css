@@ -1,0 +1,10 @@
+.presentation-review-notice { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 18px; margin-bottom:20px; border:1px solid var(--folio-border); border-radius:5px; background:var(--folio-sage); color:var(--folio-ink); font-size:12px; }
+.presentation-review-notice strong { font-weight:500; }
+.presentation-review-notice p { margin-top:5px; color:var(--folio-muted); font-size:11px; line-height:1.7; }
+.presentation-review-notice button { flex-shrink:0; }
+.presentation-review-details { margin-bottom:18px; color:var(--folio-muted); font-size:11px; line-height:1.8; }
+.presentation-review-details summary { cursor:pointer; color:var(--folio-green); }
+.presentation-review-details summary:focus-visible { outline:2px solid #a1b399; outline-offset:3px; }
+.presentation-review-details p,.presentation-review-details ul { margin-top:8px; }
+.presentation-review-details ul { padding-left:18px; list-style:disc; }
+@media(max-width:650px) { .presentation-review-notice { align-items:flex-start; flex-direction:column; gap:12px; padding:14px; } }

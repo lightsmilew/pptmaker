@@ -117,6 +117,10 @@ class LayoutType(str, Enum):
     COVER = "cover"
     CONCLUSION = "conclusion"
     MINIMAL = "minimal"
+    LEFT_RAIL = "left_rail"
+    STACKED_ROWS = "stacked_rows"
+    CARDS_GRID = "cards_grid"
+    STATEMENT = "statement"
 
 
 # Basic Schemas

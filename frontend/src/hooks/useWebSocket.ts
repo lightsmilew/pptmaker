@@ -5,7 +5,7 @@
 // - Auto-reconnects with backoff on close.
 
 import { useEffect, useRef, useCallback } from 'react';
-import { createWebSocket } from '@/api/client';
+import { createWebSocket, sessionExpired } from '@/api/client';
 import type {
   WebSocketMessage,
   PageUpdateEvent,
@@ -167,10 +167,12 @@ export function useWebSocket(projectId: string | null) {
       setError('WebSocket 连接错误');
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       if (wsRef.current !== ws || projectIdRef.current !== id || disposedRef.current) return;
       console.log('WebSocket disconnected');
       setSendCommand(null);
+      if (event.code === 4401) { sessionExpired(); return; }
+      if (event.code === 4403 || event.code === 4404) { setError('无法访问此演示，请返回工作空间'); return; }
       if (disposedRef.current) return;
       reconnectTimeoutRef.current = window.setTimeout(() => {
         if (!disposedRef.current && projectIdRef.current) {

@@ -9,6 +9,9 @@ export type { TextareaProps } from './Textarea';
 export { Input } from './Input';
 export type { InputProps } from './Input';
 
+export { NumberInput } from './NumberInput';
+export type { NumberInputProps } from './NumberInput';
+
 export { Select } from './Select';
 export type { SelectProps } from './Select';
 

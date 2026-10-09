@@ -226,7 +226,7 @@ class TestWebSocketEndToEnd:
 
     @pytest.mark.asyncio
     async def test_full_lifecycle_via_websocket(self, sample_spec, tmp_path):
-        from app.api.websocket import WorkflowRunner, _dispatch
+        from app.api.websocket import WorkflowRunner, _dispatch, manager
         from app.storage.memory import memory_store
 
         # Create project
@@ -253,6 +253,9 @@ class TestWebSocketEndToEnd:
 
         send = AsyncMock()
         runner = WorkflowRunner(project_id, send)
+        async def relay(pid, message):
+            assert pid == project_id
+            await send(message)
 
         # Mock the LLM and the per-page nodes
         with patch("app.llm.config.get_llm_client") as mock_get, \
@@ -262,7 +265,8 @@ class TestWebSocketEndToEnd:
              patch("app.agent.nodes.designer_node") as mock_designer, \
              patch("app.agent.nodes.preview_renderer_node") as mock_preview, \
              patch("app.agent.nodes.critic_node") as mock_critic, \
-             patch("app.api.websocket.PPTXGenerator") as mock_gen:
+             patch("app.api.websocket.PPTXGenerator") as mock_gen, \
+             patch("app.api.websocket.manager.send_to_project",side_effect=relay):
             mock_client = MagicMock()
             mock_client.config.is_configured.return_value = True
             mock_get.return_value = mock_client
@@ -299,7 +303,13 @@ class TestWebSocketEndToEnd:
             # Run the full chain via WebSocket commands
             await _dispatch({"type": "plan_outline"}, project_id, runner, send)
             await _dispatch({"type": "generate_parallel"}, project_id, runner, send)
+            task = manager.workflow_tasks.get(project_id)
+            if task:
+                await task
             await _dispatch({"type": "render_pptx"}, project_id, runner, send)
+            task = manager.workflow_tasks.get(project_id)
+            if task:
+                await task
 
             # Inspect the broadcast timeline
             event_types = [c.args[0]["type"] for c in send.call_args_list]

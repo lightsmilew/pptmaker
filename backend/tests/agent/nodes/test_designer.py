@@ -66,7 +66,7 @@ class TestDesignerNode:
         result_state = designer_node(state)
 
         page_after = result_state["pages"]["page-01"]
-        assert page_after.layout_type == "title_content"  # Default
+        assert page_after.layout_type == "statement"  # First short page emphasises its key points.
         assert page_after.layout_json is not None
         assert page_after.master_json is not None
 

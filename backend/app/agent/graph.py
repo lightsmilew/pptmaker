@@ -83,6 +83,7 @@ def create_ppt_agent_graph() -> StateGraph:
             "revise_layout": "revise_layout",
             "revise_content": "revise_content",
             "approve": "finalize_page",
+            "finalize": "finalize_page",
             "blocked": "handle_error",
             "failed": "handle_error",
         },
@@ -112,7 +113,7 @@ def create_ppt_agent_graph() -> StateGraph:
 # ================== Routing functions ==================
 
 def route_page_review(state: AgentState) -> Literal[
-    "revise_layout", "revise_content", "approve", "blocked", "failed"
+    "revise_layout", "revise_content", "approve", "finalize", "blocked", "failed"
 ]:
     """Decide next step after critic review based on review outcome."""
     page_id = state.get("current_page_id")
@@ -131,13 +132,17 @@ def route_page_review(state: AgentState) -> Literal[
         return "approve"
 
     if review_status in ("blocked", "failed"):
+        from .review_policy import can_finalize
+        if can_finalize(page):
+            return "finalize"
         return review_status
 
     if review_status == "needs_revision":
         # Stop bounded repair without pretending that a failing page passed.
         critic_iteration = state.get("critic_iteration", 0)
-        if critic_iteration >= max(1, min(4, int(os.getenv("PPT_MAX_REVIEW_ROUNDS", "2")))):
-            return "failed"
+        from .review_policy import can_finalize, repair_limit
+        if critic_iteration > repair_limit():
+            return "finalize" if can_finalize(page) else "failed"
 
         # Pick revision path based on majority issue ownership.
         issues = page.review_issues or []

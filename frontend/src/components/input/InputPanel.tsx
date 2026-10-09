@@ -1,8 +1,10 @@
 // Requirement input panel - Soft UI Style
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import toast from 'react-hot-toast';
 import { ArrowRight, FileUp, X, FileText } from 'lucide-react';
-import { Button, Textarea, Input, Select, Card, CardHeader, CardTitle, CardDescription } from '@/components/ui';
+import { Button, Textarea, Card, NumberInput } from '@/components/ui';
+import { DesignControls } from './DesignControls';
 import type { PPTProjectSpec } from '@/types';
 import { api } from '@/api/client';
 import { useProjectStore } from '@/stores/projectStore';
@@ -13,31 +15,9 @@ interface InputPanelProps {
   mode: 'content' | 'settings';
 }
 
-const styleOptions = [
-  { value: '商务简约', label: '商务简约' },
-  { value: '学术简约', label: '学术简约' },
-  { value: '科技风', label: '科技风' },
-  { value: '创意活泼', label: '创意活泼' },
-  { value: '教育培训', label: '教育培训' },
-  { value: '金融专业', label: '金融专业' },
-];
-
-const audienceOptions = [
-  { value: '通用', label: '通用受众' },
-  { value: '小学生', label: '小学生' },
-  { value: '初中生', label: '初中生' },
-  { value: '高中生', label: '高中生' },
-  { value: '本科学生', label: '大学生' },
-  { value: '研究生', label: '研究生' },
-  { value: '企业领导', label: '企业领导' },
-  { value: '客户', label: '客户' },
-  { value: '投资人', label: '投资人' },
-  { value: '技术人员', label: '技术人员' },
-];
-
 interface UploadedFile {
+  upload_id: string;
   filename: string;
-  content: string;
   size: number;
 }
 
@@ -53,63 +33,57 @@ export function InputPanel({ onSubmit, isLoading, mode }: InputPanelProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadQueue = useRef(Promise.resolve());
+  const mounted = useRef(true); const queuedBatches = useRef(0); const dragDepth = useRef(0);
+  useEffect(() => { mounted.current=true; return () => { mounted.current=false; }; }, []);
 
-  const handleFileUpload = async (files: FileList | null) => {
+  const handleFileUpload = useCallback((files: FileList | File[] | null) => {
     if (!files || files.length === 0) return;
-
+    const batch = Array.from(files);
+    queuedBatches.current++;
     setIsUploading(true);
+    uploadQueue.current = uploadQueue.current.then(async () => {
     const newFiles: UploadedFile[] = [];
-
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
+    for (const file of batch) {
+      if (!mounted.current) break;
+      if (!/\.(pdf|docx|md|markdown|txt)$/i.test(file.name)) { toast.error(`${file.name}：支持 PDF、DOCX、Markdown 和 TXT`); continue; }
+      if (file.size > 10 * 1024 * 1024) { toast.error(`${file.name}：单文件不能超过 10 MiB`); continue; }
+      if ([...useProjectStore.getState().draftFiles,...newFiles].some(f => f.filename===file.name && f.size===file.size)) { toast('已添加此文档'); continue; }
       try {
         const result = await api.uploadAndParse(file);
+        if (!mounted.current) break;
         newFiles.push({
+          upload_id: result.upload_id,
           filename: result.filename,
-          content: result.content,
-          size: file.size,
+          size: result.size ?? file.size,
         });
-        // Append file content to input
-        setInput(prev => prev + (prev ? '\n\n' : '') + `【文件内容 - ${result.filename}】\n` + result.content);
       } catch (err) {
-        console.error('Upload failed:', err);
-        alert(`文件 ${file.name} 上传失败: ${(err as Error).message}`);
+        if (mounted.current) toast.error(`${file.name}：${(err as Error).message}`);
       }
     }
 
-    setUploadedFiles(prev => [...prev, ...newFiles]);
-    setIsUploading(false);
-  };
+    if (mounted.current) setUploadedFiles(prev => [...prev, ...newFiles]);
+    }).finally(() => { queuedBatches.current--; if (mounted.current && queuedBatches.current===0) setIsUploading(false); });
+  }, [setUploadedFiles]);
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      handleFileUpload(e.dataTransfer.files);
-    }
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-  };
+  useEffect(() => {
+    if (mode !== 'content') return;
+    const isFile = (e: DragEvent) => Array.from(e.dataTransfer?.types || []).includes('Files');
+    const reset = () => { dragDepth.current=0; setDragActive(false); };
+    const enter = (e: DragEvent) => { if (!isFile(e)) return; e.preventDefault(); dragDepth.current++; if (!isLoading) setDragActive(true); };
+    const over = (e: DragEvent) => { if (!isFile(e)) return; e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect=isLoading ? 'none' : 'copy'; };
+    const leave = (e: DragEvent) => { if (!isFile(e)) return; dragDepth.current=Math.max(0,dragDepth.current-1); if (!dragDepth.current) setDragActive(false); };
+    const drop = (e: DragEvent) => { if (!isFile(e) && !e.dataTransfer?.files.length) return; e.preventDefault(); reset(); if (isLoading) { toast('正在制作，请完成后再添加文档'); return; } handleFileUpload(e.dataTransfer?.files || null); };
+    document.addEventListener('dragenter',enter); document.addEventListener('dragover',over); document.addEventListener('dragleave',leave); document.addEventListener('drop',drop); window.addEventListener('dragend',reset); window.addEventListener('blur',reset);
+    return () => { document.removeEventListener('dragenter',enter); document.removeEventListener('dragover',over); document.removeEventListener('dragleave',leave); document.removeEventListener('drop',drop); window.removeEventListener('dragend',reset); window.removeEventListener('blur',reset); };
+  }, [mode,isLoading,handleFileUpload]);
 
   const removeFile = (index: number) => {
-    const file = uploadedFiles[index];
     setUploadedFiles(prev => prev.filter((_, i) => i !== index));
-    // Remove file content from input
-    setInput(prev => prev.replace(`【文件内容 - ${file.filename}】\n${file.content}`, '').trim());
   };
 
   const handleSubmit = () => {
+    if (isLoading || isUploading) return;
     if (!input.trim() && uploadedFiles.length === 0) return;
     onSubmit(input, effectiveSpec);
   };
@@ -122,6 +96,7 @@ export function InputPanel({ onSubmit, isLoading, mode }: InputPanelProps) {
 
   return (
     <div className={mode === 'content' ? 'brief-panel' : 'settings-panel'}>
+      {dragActive && mode==='content' && <div className="workbench-drop-overlay" role="status"><FileUp size={36} strokeWidth={1.4} /><strong>松开，把文档放进来。</strong><span>PDF / DOCX / Markdown / TXT · 单文件最大 10 MiB</span></div>}
       {/* Main Input Card */}
       {mode === 'content' && <Card className="brief-card">
         <div className="space-y-6">
@@ -148,10 +123,8 @@ export function InputPanel({ onSubmit, isLoading, mode }: InputPanelProps) {
             className={`brief-upload ${dragActive ? 'drag-active' : ''}`}
             role="button" tabIndex={0} aria-label="上传参考文档"
             onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInputRef.current?.click(); } }}
-            onDrop={handleDrop}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onClick={() => fileInputRef.current?.click()}
+            aria-disabled={isLoading}
+            onClick={() => { if (!isLoading) fileInputRef.current?.click(); }}
           >
             <input
               ref={fileInputRef}
@@ -159,10 +132,11 @@ export function InputPanel({ onSubmit, isLoading, mode }: InputPanelProps) {
               className="hidden"
               accept=".pdf,.docx,.md,.txt,.markdown"
               multiple
-              onChange={(e) => handleFileUpload(e.target.files)}
+              disabled={isLoading}
+              onChange={(e) => { handleFileUpload(e.target.files); e.target.value=''; }}
             />
             <FileUp size={19} />
-            <span><strong>{isUploading ? '正在上传和解析…' : '添加参考文档'}</strong><small>PDF / Word / Markdown / TXT</small></span>
+            <span><strong>{isUploading ? '正在上传和解析…' : '添加参考文档'}</strong><small>点击选择，或将文档拖入页面 · 最大 10 MiB</small></span>
             <span className="upload-plus">+</span>
           </div>
 
@@ -197,87 +171,13 @@ export function InputPanel({ onSubmit, isLoading, mode }: InputPanelProps) {
           )}
 
           <div className="brief-actions">
-            <div className="brief-options"><label>页数 <input aria-label="演示页数" type="number" min={1} max={50} value={effectiveSpec.page_count} onChange={e => updateSpec({ page_count: Math.min(50, Math.max(1, Math.round(Number(e.target.value)) || 8)) })} /></label><span>{effectiveSpec.style}</span></div>
-            <Button onClick={handleSubmit} disabled={!input.trim() || isLoading || isUploading} isLoading={isLoading}>创建演示 <ArrowRight size={16} /></Button>
+            <div className="brief-options"><span className="brief-count-label">页数</span><NumberInput compact aria-label="演示页数" min={1} max={50} value={effectiveSpec.page_count || 8} onValueChange={page_count => updateSpec({page_count})} /><span className="brief-style-name">{effectiveSpec.style}</span></div>
+            <Button onClick={handleSubmit} disabled={(!input.trim() && !uploadedFiles.length) || isLoading || isUploading} isLoading={isLoading}>创建演示 <ArrowRight size={16} /></Button>
           </div>
         </div>
       </Card>}
 
-      {/* Configuration Panel */}
-      {mode === 'settings' && <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">基本配置</CardTitle>
-          </CardHeader>
-          <div className="space-y-5">
-            <div>
-              <label className="text-sm font-medium text-gray-600 mb-2 block">页数</label>
-              <Input
-                aria-label="设置演示页数"
-                type="number"
-                min={1}
-                max={50}
-                value={effectiveSpec.page_count}
-                onChange={(e) => updateSpec({ page_count: Math.min(50, Math.max(1, parseInt(e.target.value) || 8)) })}
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-600 mb-2 block">风格</label>
-              <Select
-                aria-label="演示风格"
-                options={styleOptions}
-                value={effectiveSpec.style}
-                onChange={(e) => updateSpec({ style: e.target.value })}
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-600 mb-2 block">目标受众</label>
-              <Select
-                aria-label="目标受众"
-                options={audienceOptions}
-                value={effectiveSpec.audience}
-                onChange={(e) => updateSpec({ audience: e.target.value })}
-              />
-            </div>
-          </div>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">内容选项</CardTitle>
-          </CardHeader>
-          <div className="space-y-4">
-            {[
-              { key: 'needs_cover', label: '封面页', desc: '包含标题和副标题的封面', icon: '01' },
-              { key: 'needs_toc', label: '目录页', desc: '展示汇报结构', icon: '02' },
-              { key: 'needs_summary', label: '总结页', desc: '回顾核心要点', icon: '03' },
-              { key: 'needs_chart', label: '图表页', desc: '包含数据可视化', icon: '04' },
-            ].map((item) => (
-              <label key={item.key} className="setting-toggle">
-                <div className="flex items-center gap-3">
-                  <span className="w-7 h-7 rounded-md bg-slate-100 text-slate-500 text-xs font-semibold flex items-center justify-center">{item.icon}</span>
-                  <div>
-                    <span className="text-sm font-medium text-gray-700">
-                      {item.label}
-                    </span>
-                    <p className="text-xs text-gray-400">{item.desc}</p>
-                  </div>
-                </div>
-                <div className="relative">
-                  <input
-                    type="checkbox"
-                    checked={effectiveSpec[item.key as keyof PPTProjectSpec] as boolean}
-                    onChange={(e) => updateSpec({ [item.key]: e.target.checked } as Partial<PPTProjectSpec>)}
-                    aria-label={item.label} className="sr-only peer"
-                  />
-                  <div className="w-10 h-6 bg-[#dde3d8] rounded-full peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-[#547459] peer-checked:bg-[#29483e] transition-colors duration-200"></div>
-                  <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform duration-200 peer-checked:translate-x-4"></div>
-                </div>
-              </label>
-            ))}
-          </div>
-        </Card>
-      </div>}
+      {mode === 'settings' && <DesignControls />}
     </div>
   );
 }

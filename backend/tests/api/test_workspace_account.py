@@ -10,33 +10,38 @@ from app.storage.memory import memory_store
 from app.storage.account_repository import AccountRepository, QuotaExceeded
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
+def client(tmp_path, monkeypatch, authenticated_client):
     monkeypatch.setenv("FOLIO_DB", str(tmp_path / "account.sqlite3"))
     monkeypatch.setattr(settings, "storage_path", str(tmp_path / "exports"))
     memory_store._projects.clear()
-    yield TestClient(app)
+    yield authenticated_client()
     memory_store._projects.clear()
 
 def test_profile_persists_and_preferences_merge(client, tmp_path):
     original = client.get("/api/v1/account").json()
     updated = client.patch("/api/v1/account/profile", json={"display_name":"林间", "email":"author@example.com", "preferences":{"style":"学术简约"}})
     assert updated.status_code == 200
-    saved = AccountRepository(str(tmp_path / "account.sqlite3")).profile()
+    saved = AccountRepository(str(tmp_path / "account.sqlite3"), original["profile"]["account_id"]).profile()
     assert saved["display_name"] == "林间"
     assert saved["account_id"] == original["profile"]["account_id"]
-    assert saved["preferences"] == {"style":"学术简约", "page_count":8, "language":"zh-CN"}
+    assert saved["preferences"] == {"style":"学术简约", "page_count":8, "language":"zh-CN", "layout_mode":"auto", "content_density":"balanced"}
     assert "api_key" not in updated.json()["account"]
     assert "api_key" not in updated.json()["profile"]
-    assert updated.json()["account"]["authentication"] == "local_workspace"
+    assert updated.json()["account"]["authentication"] == "server_session"
 
 @pytest.mark.parametrize("patch", [{"is_vip":True},{"account_id":"admin"},{"preferences":{"page_count":51}},{"display_name":"  "},{"email":"invalid"}])
 def test_profile_rejects_privileged_or_invalid_fields(client, patch):
     assert client.patch("/api/v1/account/profile",json=patch).status_code == 422
 
 def test_membership_is_backend_configured_and_expiry_enforced(client, monkeypatch):
-    monkeypatch.setenv("FOLIO_MEMBERSHIP","plus")
+    import json
+    from app.storage.auth_repository import AuthRepository
+    uid = client.get("/api/v1/account").json()["profile"]["account_id"]
+    with AuthRepository().connect() as db:
+        db.execute("UPDATE users SET membership=? WHERE id=?", (json.dumps({"tier":"plus"}),uid))
     assert client.get("/api/v1/account/membership").json()["is_vip"]
-    monkeypatch.setenv("FOLIO_MEMBERSHIP_EXPIRES_AT","2000-01-01T00:00:00Z")
+    with AuthRepository().connect() as db:
+        db.execute("UPDATE users SET membership=? WHERE id=?", (json.dumps({"tier":"plus","expires_at":"2000-01-01T00:00:00Z"}),uid))
     data = client.get("/api/v1/account/membership").json()
     assert data["status"] == "expired" and not data["is_vip"]
 

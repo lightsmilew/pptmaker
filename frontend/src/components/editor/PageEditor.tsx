@@ -119,7 +119,8 @@ export function PageEditor({ page, onSave, onCancel }: PageEditorProps) {
               <Select
                 options={layoutOptions}
                 value={layoutType}
-                onChange={(e) => setLayoutType(e.target.value)}
+                onValueChange={setLayoutType}
+                aria-label="版式布局"
               />
             </div>
           </div>

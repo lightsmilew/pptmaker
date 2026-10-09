@@ -18,6 +18,8 @@ def record_call(**record):
     record.setdefault("call_id", uuid.uuid4().hex)
     record["created_at"] = datetime.now(timezone.utc).isoformat()
     record["project_id"] = project_context.get()
+    from ..storage.auth_repository import user_context
+    record["user_id"] = user_context.get()
     with _lock:
         _records.append(record)
     logger.info("LLM %s", record)
@@ -25,9 +27,9 @@ def record_call(**record):
     account_repository().record_usage(record)
 
 
-def usage_snapshot(project_id=None):
+def usage_snapshot(project_id=None, user_id=None):
     with _lock:
-        records = [dict(r) for r in _records if project_id is None or r["project_id"] == project_id]
+        records = [dict(r) for r in _records if (project_id is None or r["project_id"] == project_id) and (user_id is None or r.get("user_id") == user_id)]
     total = lambda key: sum(r.get(key, 0) or 0 for r in records)
     input_tokens = total("input_tokens")
     return {
@@ -45,6 +47,10 @@ def usage_snapshot(project_id=None):
 def run_project_step(function, state, project_id):
     """Run in asyncio.to_thread; scope telemetry to this project without leaking context."""
     token = project_context.set(project_id)
+    from ..storage.auth_repository import user_context
+    from ..storage.memory import memory_store
+    project = memory_store.get_project(project_id)
+    user_token = user_context.set((project or {}).get("owner_id") or user_context.get())
     started = perf_counter()
     try:
         return function(state)
@@ -52,3 +58,4 @@ def run_project_step(function, state, project_id):
         logger.info("stage project=%s node=%s duration_ms=%.1f", project_id,
                     getattr(function, "__name__", type(function).__name__), (perf_counter() - started) * 1000)
         project_context.reset(token)
+        user_context.reset(user_token)

@@ -79,6 +79,7 @@ def writer_node(state: AgentState) -> AgentState:
             user_input=user_input,
             feedback=page.review_issues,
             include_notes=bool(spec.get("speaker_notes", False)),
+            content_density=spec.get("content_density", "balanced"),
         )
 
         # Update page state
@@ -115,12 +116,16 @@ def _generate_page_content(
     user_input: str = "",
     feedback: Optional[List[Dict]] = None,
     include_notes: bool = False,
+    content_density: str = "balanced",
 ) -> Dict[str, Any]:
     """Generate page content using LLM with structured output."""
     # Put stable source before page-specific data to preserve a reusable prefix.
     from ..context import page_source
     relevant = page_source(user_input, page_title, key_points)
     shared = {"topic": topic, "source": user_input if relevant == user_input else user_input[:500]}
+    # Keep the density instruction in the stable prefix across pages.
+    shared["density"] = {"airy":"每页2至3组，解释最多25字", "balanced":"每页2至4组，解释最多40字",
+                         "compact":"每页3至5组，解释最多45字"}.get(content_density, "每页2至4组，解释最多40字")
     page_request = {"type": page_type, "title": page_title, "points": key_points}
     if relevant != user_input:
         page_request["source_passages"] = relevant
@@ -133,18 +138,25 @@ def _generate_page_content(
         {"page":page_request}, ensure_ascii=False, separators=(",", ":"))
     llm = get_llm_client("writer")
     response = llm.generate(prompt=prompt, system=WRITER_SYSTEM,
-                            max_tokens=1400 if page_type in ("chart", "table") else 1000,
+                            max_tokens=1400 if page_type in ("chart", "table") else 700 if content_density == "airy" else 1000,
                             temperature=0.35, json_object=True, cache=not feedback)
     data = json.loads(extract_json_from_text(response))
     if not isinstance(data, dict):
         raise ValueError("响应不是JSON对象")
     if "items" in data:
         items = data["items"]
-        if not isinstance(items, list) or not 1 <= len(items) <= 5:
-            raise ValueError("items必须包含1至5组内容")
+        if not isinstance(items, list) or not 1 <= len(items) <= 12:
+            raise ValueError("items必须包含1至12组内容")
         if not all(isinstance(item, list) and len(item) == 2 and all(isinstance(v,str) for v in item)
                    for item in items):
             raise ValueError("items每项必须是[标题,解释]两个字符串")
+        limit = {"airy":3,"balanced":4,"compact":5}.get(content_density,4)
+        if len(items) > limit:
+            # Models sometimes expand every outline point despite the density
+            # instruction. Merge adjacent groups without dropping their facts.
+            items = [[" · ".join(row[0] for row in items[len(items)*i//limit:len(items)*(i+1)//limit]),
+                      "；".join(row[1] for row in items[len(items)*i//limit:len(items)*(i+1)//limit])]
+                     for i in range(limit)]
         data = {"title": page_title, "subtitle": subtitle,
                 "key_points": [item[0] for item in items],
                 "bullet_points": [item[1] for item in items],

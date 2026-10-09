@@ -45,8 +45,25 @@ def designer_node(state: AgentState) -> AgentState:
         from ...tools.slide_scene import template_layout
         suggested = next((item.get("suggest_layout", "") for item in state.get("outline", [])
                           if item.get("page_id") == page_id), "")
+        from ...tools.slide_scene import get_theme
+        # Parallel workers hydrate only their own page; use the full outline to
+        # retain deck order instead of treating every worker as page zero.
+        page_order = [item.get("page_id") for item in state.get("outline", [])] or list(state.get("pages", {}))
+        page_index = page_order.index(page_id) if page_id in page_order else 0
         layout_data["layouts"] = [template_layout(page.page_type.value,
-            max(len(page.key_points), len(page.bullet_points)), bool(page.subtitle), suggested)]
+            max(len(page.key_points), len(page.bullet_points)), bool(page.subtitle), suggested,
+            layout_mode=spec.get("layout_mode", "auto"), page_index=page_index,
+            family=get_theme(style)["family"], density=spec.get("content_density", "balanced"))]
+        from ...tools.slide_scene import build_scene
+        measured = build_scene(dict(page_type=page.page_type.value, title=page.title, subtitle=page.subtitle,
+                                    key_points=page.key_points, bullet_points=page.bullet_points,
+                                    chart_data=page.chart_data, table_data=page.table_data,
+                                    style_config={"layouts":layout_data["layouts"]}), get_theme(style))
+        if any(e.get("overflow") for e in measured["elements"]) and page.page_type.value not in ("cover", "thankyou", "chart", "table", "toc"):
+            # Dense paragraphs need wider regions even when a compact grid was selected.
+            layout_data["layouts"] = [template_layout(page.page_type.value,
+                max(len(page.key_points), len(page.bullet_points)), bool(page.subtitle), "two_column",
+                density=spec.get("content_density", "balanced"))]
         layout_data["layout_type"] = layout_data["layouts"][0]["layout_type"]
         _validate_layout_data(layout_data, page)
 
@@ -88,7 +105,7 @@ def _generate_layout_config(
         "background": {"type": "solid", "rgb": list(rgb(theme["background"]))},
         "color_scheme": {name: list(rgb(theme.get(name, theme["primary"])))
                          for name in ("primary", "secondary", "accent", "text")},
-        "font_scheme": {"title_font": "Microsoft YaHei", "body_font": "Microsoft YaHei",
+        "font_scheme": {"title_font": theme["fonts"]["title"], "body_font": theme["fonts"]["body"],
                         "title_size": 30, "body_size": 18},
     }
     master["color_scheme"]["light_text"] = [255, 255, 255]

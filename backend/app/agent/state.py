@@ -23,7 +23,7 @@ class AgentState(TypedDict):
     # Project level
     project: ProjectState
     user_input: str
-    uploaded_files: List[str]
+    uploaded_files: List[Dict[str, Any]]
 
     # Workflow
     workflow: WorkflowState
@@ -53,7 +53,7 @@ def create_initial_state(
     project_id: str,
     spec: Dict[str, Any],
     user_input: str = "",
-    uploaded_files: Optional[List[str]] = None,
+    uploaded_files: Optional[List[Dict[str, Any]]] = None,
     page_count: Optional[int] = None,
 ) -> AgentState:
     """Create initial agent state."""

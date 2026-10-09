@@ -1,11 +1,12 @@
-"""Read/resume presentation history and manage the single local account."""
+"""Read/resume owned presentations and manage the current server account."""
 
 from copy import deepcopy
 from pathlib import Path
 from typing import Literal
 import re
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
+from .auth import require_user, owned_project
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ..config import settings
@@ -42,10 +43,10 @@ def project_summary(project):
 
 
 @router.get("/workspace")
-async def workspace_overview():
-    items = [project_summary(p) for p in memory_store.list_projects()]
+async def workspace_overview(user_id: str = Depends(require_user)):
+    items = [project_summary(p) for p in memory_store.list_projects() if p.get("owner_id") == user_id]
     active = [p for p in items if not p["archived"]]
-    return dict(name="我的工作空间",mode="local",stats=dict(total=len(active),
+    return dict(name="我的工作空间",mode="server",stats=dict(total=len(active),
                 completed=sum(p["status"]=="completed" for p in active),
                 favorites=sum(p["favorite"] for p in active),
                 in_progress=sum(p["status"] in ("parsing","planning","generating","reviewing","rendering") for p in active),
@@ -55,10 +56,13 @@ async def workspace_overview():
 
 
 @router.get("/projects/{project_id}")
-async def get_project(project_id: str):
-    project = memory_store.get_project(project_id)
-    if not project:
-        raise HTTPException(404,"演示文稿不存在")
+async def get_project(project_id: str, user_id: str = Depends(require_user)):
+    project = owned_project(project_id, user_id)
+    return project_view(project)
+
+
+def project_view(project):
+    """REST and socket snapshots share the same actual file availability."""
     result = deepcopy(project)
     result["download_url"] = project_summary(project)["download_url"]
     return result
@@ -89,10 +93,8 @@ class MetadataPatch(BaseModel):
 
 
 @router.patch("/projects/{project_id}")
-async def update_project_metadata(project_id: str, patch: MetadataPatch):
-    original = memory_store.get_project(project_id)
-    if not original:
-        raise HTTPException(404,"演示文稿不存在")
+async def update_project_metadata(project_id: str, patch: MetadataPatch, user_id: str = Depends(require_user)):
+    original = owned_project(project_id, user_id)
     project = deepcopy(original)
     changes = patch.model_dump(exclude_none=True)
     title = changes.pop("title",None)
@@ -105,9 +107,19 @@ async def update_project_metadata(project_id: str, patch: MetadataPatch):
 
 class PreferencePatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    style: Literal["商务简约","学术简约","科技风","创意活泼","教育培训","金融专业"] | None = None
+    style: str | None = None
     page_count: int | None = Field(default=None,ge=1,le=50)
     language: Literal["zh-CN","en"] | None = None
+    layout_mode: Literal["auto","editorial","structured","spotlight"] | None = None
+    content_density: Literal["airy","balanced","compact"] | None = None
+
+    @field_validator("style")
+    @classmethod
+    def valid_style(cls, value):
+        from ..tools.design_catalog import STYLE_NAMES
+        if value is not None and value not in STYLE_NAMES:
+            raise ValueError("请选择目录中的演示风格")
+        return value
 
 
 class ProfilePatch(BaseModel):
@@ -135,41 +147,43 @@ class ProfilePatch(BaseModel):
         return value.strip() if value is not None else None
 
 
-def account_view():
+def account_view(user_id):
     from ..llm.config import get_llm_config
     from urllib.parse import urlparse
-    repository = account_repository()
+    repository = account_repository(user_id)
+    from ..storage.auth_repository import AuthRepository
+    user = AuthRepository().user(user_id)
     config = get_llm_config()
     provider = config.get_active_config()
     return dict(profile=repository.profile(),membership=repository.membership(),usage=repository.usage(),
-                account=dict(mode="local",status="active",email_verified=False,
+                account=dict(mode="server",status=user["status"],email_verified=False,login_email=user["email"],
                              provider_host=urlparse(provider.base_url).hostname, model=provider.model_name,
-                             provider_connected=config.is_configured(),authentication="local_workspace"))
+                             provider_connected=config.is_configured(),authentication="server_session"))
 
 
 @router.get("/account")
-async def get_account():
-    return account_view()
+async def get_account(user_id: str = Depends(require_user)):
+    return account_view(user_id)
 
 
 @router.patch("/account/profile")
-async def update_profile(patch: ProfilePatch):
-    account_repository().update_profile(patch.model_dump(exclude_none=True))
-    return account_view()
+async def update_profile(patch: ProfilePatch, user_id: str = Depends(require_user)):
+    account_repository(user_id).update_profile(patch.model_dump(exclude_none=True))
+    return account_view(user_id)
 
 
 @router.get("/account/usage")
-async def get_account_usage():
-    return account_repository().usage()
+async def get_account_usage(user_id: str = Depends(require_user)):
+    return account_repository(user_id).usage()
 
 
 @router.get("/account/membership")
-async def get_membership():
-    return account_repository().membership()
+async def get_membership(user_id: str = Depends(require_user)):
+    return account_repository(user_id).membership()
 
 
-def list_project_summaries(q="",status="all",favorite=None,archived=False,sort="updated",page=1,page_size=12):
-    items = [project_summary(p) for p in memory_store.list_projects()]
+def list_project_summaries(q="",status="all",favorite=None,archived=False,sort="updated",page=1,page_size=12,user_id=None):
+    items = [project_summary(p) for p in memory_store.list_projects() if p.get("owner_id") == user_id]
     items = [p for p in items if p["archived"] == archived and (favorite is None or p["favorite"] == favorite)]
     if q:
         items = [p for p in items if q.casefold() in " ".join([p["title"],p["audience"],p["style"],*p["tags"]]).casefold()]

@@ -45,6 +45,9 @@ def render_preview(
     """
     from ...config import settings
     from ...tools.slide_scene import build_scene, get_theme, render_scene_png
+    import re
+    if not all(re.fullmatch(r"[A-Za-z0-9_-]{1,80}", value) for value in (project_id,page_id)):
+        raise ValueError("页面或项目标识无效")
     data = {**page_data, "page_id": page_id,
             "style_config": {"master": master_json or {}, "layouts": [layout_json or {}]}}
     scene = build_scene(data, get_theme((spec or {}).get("style", "商务简约")))

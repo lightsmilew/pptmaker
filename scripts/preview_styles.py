@@ -10,6 +10,10 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"backend"))
 from app.tools.slide_scene import build_scene, get_theme, render_scene_png
 from app.tools.pptx_generator import PPTXGenerator
 from app.tools.slide_quality import review_scene
+from app.tools.design_catalog import STYLE_DEFINITIONS
+from app.agent.nodes.designer import designer_node
+from app.agent.state import create_initial_state
+from app.models.page import PageState
 
 pages = [
     dict(page_id="page-01",page_type="cover",title="清晰表达，从结构开始",subtitle="演示设计参考\n用一致的层级与留白，让内容自然展开。"),
@@ -26,13 +30,22 @@ pages = [
 if __name__ == "__main__":
     output=Path("storage/design_samples")
     output.mkdir(parents=True,exist_ok=True)
-    for style in ("商务简约","学术简约","科技风"):
+    for style in (row[0] for row in STYLE_DEFINITIONS):
         theme=get_theme(style)
-        for page in pages:
+        state=create_initial_state("preview-styles",dict(style=style,layout_mode="auto"))
+        state["pages"]={page["page_id"]:PageState(**page) for page in pages}
+        rendered=[]
+        for original in pages:
+            state["current_page_id"]=original["page_id"]
+            designer_node(state)
+            if state["errors"]:
+                raise RuntimeError(state["errors"])
+            page=state["pages"][original["page_id"]].to_dict()
+            rendered.append(page)
             scene=build_scene(page,theme)
             render_scene_png(scene,output/f"{style}-{page['page_id']}.png")
             result=review_scene(page,style)
             if result["issues"]:
                 raise RuntimeError(f"{style} {page['page_id']}: {result['issues']}")
-        PPTXGenerator().generate(pages,str(output/f"{style}.pptx"),"演示设计参考",theme)
+        PPTXGenerator().generate(rendered,str(output/f"{style}.pptx"),"演示设计参考",theme)
     print(str(output.resolve()))

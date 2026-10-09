@@ -79,6 +79,7 @@ const resetStore = () => {
     parallelStatus: null,
     lastDownloadUrl: null,
     sendCommand: captureCommand,
+    workflowPending: false,
   });
   lastCommand = null;
   Object.values(mockedApi).forEach((fn) => fn.mockReset());
@@ -120,6 +121,7 @@ describe('useProjectStore - createProject', () => {
     expect(mockedApi.createProject).toHaveBeenCalledWith({
       spec: sampleSpec,
       user_input: 'some input',
+      uploaded_files: [],
     });
     expect(useProjectStore.getState().project?.id).toBe('proj-1');
     expect(useProjectStore.getState().isLoading).toBe(false);
@@ -176,14 +178,24 @@ describe('useProjectStore - WebSocket command actions', () => {
     expect(lastCommand).toEqual({ type: 'delete_project' });
   });
 
-  it('generateParallel seeds parallelStatus and emits command', () => {
+  it('generateParallel requests repair without inventing server status or counts', () => {
     useProjectStore.setState({ project: createProject() });
     useProjectStore.getState().generateParallel();
 
     const state = useProjectStore.getState();
-    expect(state.parallelStatus?.total_pages).toBe(4);
-    expect(Object.keys(state.parallelStatus?.pages_status || {})).toHaveLength(4);
+    expect(state.parallelStatus).toBeNull();
+    expect(state.project?.status).toBe('idle');
+    expect(state.workflowPending).toBe(true);
     expect(lastCommand).toEqual({ type: 'generate_parallel' });
+  });
+
+  it('runWorkflow sends one command and waits for the server to select stages', () => {
+    const project = createProject();
+    useProjectStore.setState({project});
+    useProjectStore.getState().runWorkflow();
+    expect(lastCommand).toEqual({type:'run_workflow'});
+    expect(useProjectStore.getState().project).toBe(project);
+    expect(useProjectStore.getState().workflowPending).toBe(true);
   });
 
   it('updateSpec emits update_spec with patch', () => {
@@ -257,6 +269,19 @@ describe('useProjectStore - WebSocket event handlers', () => {
     expect(useProjectStore.getState().project?.status).toBe('planned');
   });
 
+  it('a server retry patch clears the previous generation error', () => {
+    useProjectStore.setState({ project:createProject({status:'failed',error:'旧的失败'}),error:'旧的失败' });
+    useProjectStore.getState().handleStatePatch(createProject({status:'generating',error:null}));
+    expect(useProjectStore.getState().error).toBeNull();
+    expect(useProjectStore.getState().project?.error).toBeNull();
+  });
+
+  it('server snapshots invalidate stale download links when output is not ready', () => {
+    useProjectStore.setState({project:createProject({status:'completed'}),lastDownloadUrl:'/storage/old.pptx'});
+    useProjectStore.getState().handleStatePatch({status:'rendering',download_url:null} as PPTProject);
+    expect(useProjectStore.getState().lastDownloadUrl).toBeNull();
+  });
+
   it('handlePageUpdated updates the page status and review/preview', () => {
     useProjectStore.setState({
       project: createProject(),
@@ -293,7 +318,7 @@ describe('useProjectStore - WebSocket event handlers', () => {
     expect(updated?.status).toBe('completed');
     expect(updated?.iteration).toBe(2);
     expect(updated?.review?.score).toBe(92);
-    expect(state.parallelStatus?.completed_pages).toBe(1);
+    expect(state.parallelStatus?.completed_pages).toBe(0); // authoritative aggregate follows separately
   });
 
   it('handlePreviewReady attaches a preview to the matching page', () => {
@@ -302,14 +327,14 @@ describe('useProjectStore - WebSocket event handlers', () => {
     const event: PreviewReadyEvent = {
       page_id: 'page-01',
       image_path: '/storage/preview.png',
+      preview: {image_path:'/storage/preview.png',width:800,height:450,rendered_at:'2026-10-09T01:00:00Z'},
       iteration: 1,
     };
     useProjectStore.getState().handlePreviewReady(event);
 
     const page = useProjectStore.getState().project?.pages.find((p) => p.page_id === 'page-01');
     expect(page?.preview?.image_path).toBe('/storage/preview.png');
-    expect(page?.preview?.width).toBe(1600);
-    expect(page?.preview?.height).toBe(900);
+    expect(page?.preview).toEqual(event.preview);
   });
 
   it('handleReviewCompleted stores the review on the page', () => {
@@ -346,29 +371,29 @@ describe('useProjectStore - WebSocket event handlers', () => {
     useProjectStore.getState().handleProgress('writing', 50);
 
     const project = useProjectStore.getState().project!;
-    expect(project.status).toBe('generating');
+    expect(project.status).toBe('idle');
     expect(project.current_step).toBe('writing');
     expect(project.progress).toBe(50);
   });
 
-  it('handleCompleted marks the project as completed and remembers the URL', () => {
+  it('handleCompleted remembers the URL while completion state comes from a server snapshot', () => {
     useProjectStore.setState({ project: createProject() });
 
     const event: CompletedEvent = { download_url: '/storage/output.pptx' };
     useProjectStore.getState().handleCompleted(event);
 
     const project = useProjectStore.getState().project!;
-    expect(project.status).toBe('completed');
-    expect(project.progress).toBe(100);
+    expect(project.status).toBe('idle');
+    expect(project.progress).toBe(0);
     expect(useProjectStore.getState().lastDownloadUrl).toBe('/storage/output.pptx');
   });
 });
 
 // ================== Status helpers ==================
 describe('useProjectStore - status helpers', () => {
-  it('setStatus updates project status, step, and progress', () => {
+  it('server patches update project status, step, and progress', () => {
     useProjectStore.setState({ project: createProject() });
-    useProjectStore.getState().setStatus('generating', 'writing', 30);
+    useProjectStore.getState().handleStatePatch(createProject({status:'generating',current_step:'writing',progress:30}));
 
     const project = useProjectStore.getState().project!;
     expect(project.status).toBe('generating');
@@ -376,11 +401,11 @@ describe('useProjectStore - status helpers', () => {
     expect(project.progress).toBe(30);
   });
 
-  it('setStatus keeps existing step/progress when not provided', () => {
+  it('partial server patches retain fields not included', () => {
     useProjectStore.setState({
       project: createProject({ current_step: 'init', progress: 5 }),
     });
-    useProjectStore.getState().setStatus('parsing');
+    useProjectStore.getState().handleStatePatch({status:'parsing'} as PPTProject);
 
     const project = useProjectStore.getState().project!;
     expect(project.status).toBe('parsing');

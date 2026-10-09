@@ -23,9 +23,11 @@ const statusColors: Record<PageStatus, string> = {
 
 export function PPTPreview({ page, className, showPreviewImage = true }: PPTPreviewProps) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [imageFailed, setImageFailed] = useState(false);
 
   // Try to load preview image
   useEffect(() => {
+    setImageFailed(false);
     if (page?.preview?.image_path && showPreviewImage) {
       const previewPath = page.preview.image_path;
       const normalized = previewPath.replace(/\\/g, '/');
@@ -56,19 +58,11 @@ export function PPTPreview({ page, className, showPreviewImage = true }: PPTPrev
   const bulletPoints: string[] = page.content?.bullet_points ?? [];
   const points = keyPoints.length > 0 ? keyPoints : bulletPoints;
 
-  const master = page.layout?.master_json;
-  const layouts = page.layout?.layout_json;
-  const placeholders = layouts?.placeholders ?? [];
-  const columnCount = Math.max(
-    1,
-    placeholders.filter((p) => p.type === 'text' && p.name !== 'subtitle').length
-  );
-
-  const rgb = (value?: number[]) =>
-    value && value.length >= 3 ? `rgb(${value[0]}, ${value[1]}, ${value[2]})` : undefined;
-  const background = rgb(master?.background?.rgb) || '#ffffff';
-  const primary = rgb(master?.color_scheme?.primary) || '#1e293b';
-  const textColor = rgb(master?.color_scheme?.text) || '#475569';
+  // This is a readable content excerpt, never a second slide-layout engine.
+  // Slide geometry, colors, preview and export are produced by the backend.
+  const background = 'var(--folio-paper)';
+  const primary = 'var(--folio-green)';
+  const textColor = 'var(--folio-ink)';
 
   return (
     <div
@@ -84,7 +78,7 @@ export function PPTPreview({ page, className, showPreviewImage = true }: PPTPrev
           src={previewUrl}
           alt={`${page.page_id} preview`}
           className="absolute inset-0 w-full h-full object-cover"
-          onError={() => setPreviewUrl(null)}
+          onError={() => { setPreviewUrl(null); setImageFailed(true); }}
         />
       )}
 
@@ -96,6 +90,7 @@ export function PPTPreview({ page, className, showPreviewImage = true }: PPTPrev
         )}
         style={!previewUrl ? { backgroundColor: background } : {}}
       >
+        <p className="mb-2 text-xs text-[#74816f]" role={imageFailed ? 'alert' : undefined}>{imageFailed ? '预览暂时无法加载，以下为正文摘录。' : '正文摘录 · 幻灯片预览就绪后显示'}</p>
         {/* Header */}
         <div className="flex items-center justify-between mb-3">
           <span className={clsx(
@@ -148,14 +143,9 @@ export function PPTPreview({ page, className, showPreviewImage = true }: PPTPrev
 
         {/* Content */}
         {!previewUrl && points.length > 0 && (
-          <div className={clsx('flex-1 overflow-hidden grid gap-4',
-            columnCount > 1 ? `grid-cols-${Math.min(columnCount, 3)}` : 'grid-cols-1'
-          )}>
-            {Array.from({ length: Math.min(columnCount, points.length) }, (_, column: number) => (
-              <ul key={column} className="space-y-2">
-                {points
-                  .filter((_point: string, index: number) => index % Math.min(columnCount, points.length) === column)
-                  .map((point: string, index: number) => (
+          <div className="flex-1 overflow-auto">
+              <ul className="space-y-2">
+                {points.map((point: string, index: number) => (
                   <li key={index} className="flex items-start gap-2">
                     <span className={clsx(
                       'flex-shrink-0 w-5 h-5 rounded-lg flex items-center justify-center text-xs font-semibold',
@@ -167,7 +157,6 @@ export function PPTPreview({ page, className, showPreviewImage = true }: PPTPrev
                   </li>
                 ))}
               </ul>
-            ))}
           </div>
         )}
 

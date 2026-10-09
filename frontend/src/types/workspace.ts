@@ -15,7 +15,7 @@ export interface WorkspaceOverview {
 export interface Profile {
   account_id: string; display_name: string; email: string; company: string; occupation: string;
   bio: string; timezone: string; created_at: string; updated_at?: string;
-  preferences: { style: string; page_count: number; language: string };
+  preferences: { style: string; page_count: number; language: string; layout_mode?: import('./design').LayoutMode; content_density?: import('./design').ContentDensity };
 }
 export interface Usage {
   period: string; period_start: string; resets_at: string; calls: number; lifetime_calls: number;
@@ -28,6 +28,6 @@ export interface Account {
   profile: Profile;
   membership: { tier: string; name: string; is_vip: boolean; status: string; expires_at: string | null; managed_by: string; billing_mode: string; features: string[]; limits: { max_pages: number; concurrency: number } };
   usage: Usage;
-  account: { mode: string; status: string; email_verified: boolean; provider_host: string | null; model: string; provider_connected: boolean; authentication: string };
+  account: { mode: string; status: string; login_email?: string; email_verified: boolean; provider_host: string | null; model: string; provider_connected: boolean; authentication: string };
 }
 export type ProfilePatch = Partial<Omit<Profile, 'account_id' | 'created_at' | 'updated_at' | 'preferences'>> & { preferences?: Partial<Profile['preferences']> };

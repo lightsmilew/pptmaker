@@ -47,9 +47,24 @@ def critic_node(state: AgentState) -> AgentState:
     page.iteration = state["critic_iteration"]
 
     try:
+        page.review_warning = None
         mode = state["project"].spec.get("review_mode", os.getenv("PPT_REVIEW_MODE", "local"))
         if mode == "vision":
-            review_result = _review_page_image(page, page.review_issues or None, page.iteration)
+            try:
+                review_result = _review_page_image(page, page.review_issues or None, page.iteration)
+                if review_result.get("status") == "blocked":
+                    raise ValueError(review_result.get("error") or "视觉复核暂时不可用")
+                # A poor visual result is repair advice, not a rendering failure.
+                if review_result.get("status") == "failed":
+                    review_result["status"] = "needs_revision"
+                if review_result.get("status") == "approved" and (review_result.get("score", 0) < 80 or
+                        any(issue.get("severity") == "high" for issue in review_result.get("issues", []))):
+                    review_result["status"] = "needs_revision"
+            except Exception:
+                from ...tools.slide_quality import review_scene
+                review_result = review_scene(page.to_dict(), state["project"].spec.get("style", "商务简约"))
+                review_result["review_method"] = "local_geometry_fallback"
+                page.review_warning = "视觉复核暂时不可用，已改用本地排版检查；这不代表视觉复核通过。"
         else:
             from ...tools.slide_quality import review_scene
             review_result = review_scene(page.to_dict(), state["project"].spec.get("style", "商务简约"))
@@ -69,7 +84,7 @@ def critic_node(state: AgentState) -> AgentState:
     except Exception as e:
         page.review_status = "blocked"
         page.review_score = 0
-        page.error = f"评审异常: {str(e)}"
+        page.review_warning = "排版检查暂时未完成，已保留页面，可继续调整。"
         state["errors"].append({
             "error_id": f"err-{len(state['errors']) + 1}",
             "node": "critic",
@@ -140,6 +155,8 @@ def _review_page_image(
             raise ValueError("复核 score 必须是 0 到 100")
         if not isinstance(result.get("issues"), list):
             raise ValueError("复核 issues 必须是数组")
+        if any(not isinstance(issue, dict) for issue in result["issues"]):
+            raise ValueError("复核 issues 每项必须是对象")
         return result
     except json.JSONDecodeError as exc:
         raise ValueError("图片评审返回无效JSON") from exc

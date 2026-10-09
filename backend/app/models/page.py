@@ -75,6 +75,7 @@ class PageState(BaseModel):
     review_score: Optional[float] = None
     review_issues: List[Dict[str, Any]] = Field(default_factory=list)
     review_suggestions: List[str] = Field(default_factory=list)
+    review_warning: Optional[str] = None
 
     # Iteration
     iteration: int = 1
@@ -140,6 +141,7 @@ class PageState(BaseModel):
                 "score": self.review_score,
                 "issues": self.review_issues,
                 "suggestions": self.review_suggestions,
+                "warning": self.review_warning,
             },
             "iteration": self.iteration,
             "max_iterations": self.max_iterations,

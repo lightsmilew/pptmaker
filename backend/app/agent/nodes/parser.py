@@ -100,6 +100,10 @@ def parser_node(state: AgentState) -> AgentState:
             raise ValueError("page_count 必须在 1 到 50 之间")
 
         # Update project spec
+        # Keep the user's chosen visual direction through the graph path too.
+        for key in ("style", "layout_mode", "content_density"):
+            if state["project"].spec.get(key):
+                spec_data[key] = state["project"].spec[key]
         state["project"].spec = spec_data
         state["project"].page_count = spec_data.get("page_count", 8)
 

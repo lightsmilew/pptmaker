@@ -4,7 +4,7 @@
 // now sent over a bidirectional WebSocket — the REST surface here only
 // covers the few endpoints that must remain request/response:
 //   - /api/v1/projects                 (creation, history, metadata)
-//   - /api/v1/account                  (local identity, entitlements, usage)
+//   - /api/v1/account                  (owned server profile, entitlements, usage)
 //   - POST /api/v1/upload/parse        (one-shot file text extraction)
 //   - GET  /storage/{filename}         (static download URL builder)
 
@@ -13,41 +13,61 @@ import type {
   CreateProjectRequest,
 } from '@/types';
 import type { Account, ProfilePatch, ProjectList, PresentationSummary, WorkspaceOverview } from '@/types/workspace';
+import type { DesignCatalog } from '@/types/design';
 
 const API_BASE = '/api/v1';
+let csrfToken = '';
+let sessionVersion = 0;
+export function setSessionCsrf(token: string) { if (token !== csrfToken) sessionVersion++; csrfToken = token; }
+export interface AuthSession { account: Account; csrf_token: string }
+export function sessionExpired() { setSessionCsrf(''); window.dispatchEvent(new Event('folio-session-expired')); }
 
 async function request<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
   const url = `${API_BASE}${endpoint}`;
+  const version = sessionVersion;
 
   const response = await fetch(url, {
+    credentials: 'same-origin',
+    ...options,
     headers: {
       'Content-Type': 'application/json',
+      'X-Folio-Request': '1',
+      ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
       ...options.headers,
     },
-    ...options,
   });
+  if (!endpoint.startsWith('/auth/') && version !== sessionVersion) throw new Error('账号已切换，请重新打开页面');
 
   if (!response.ok) {
+    if (response.status === 401 && !endpoint.startsWith('/auth/')) sessionExpired();
     const error = await response.json().catch(() => ({ detail: 'Request failed' }));
     const detail = error.detail;
     throw new Error(typeof detail === 'string' ? detail : Array.isArray(detail) ? detail.map((item: { msg: string }) => item.msg).join('；') : `HTTP ${response.status}`);
   }
 
-  return response.json();
+  return response.status === 204 ? undefined as T : response.json();
 }
 
 export interface UploadParseResult {
+  upload_id: string;
   filename: string;
   content: string;
   content_preview: string;
+  size?: number;
 }
 
 // ==================== REST API surface ====================
 
 export const api = {
+  getDesignCatalog: () => request<DesignCatalog>('/design/catalog'),
+  getSession: () => request<AuthSession>('/auth/session'),
+  login: (email: string, password: string) => request<AuthSession>('/auth/login', { method:'POST',body:JSON.stringify({ email,password }) }),
+  register: (email: string, password: string, display_name: string) => request<AuthSession>('/auth/register', { method:'POST',body:JSON.stringify({ email,password,display_name }) }),
+  logout: () => request<void>('/auth/logout', { method:'POST' }),
+  changePassword: (current_password: string, new_password: string) => request<AuthSession>('/auth/password', { method:'POST',body:JSON.stringify({ current_password,new_password }) }),
   getProject: (id: string) => request<PPTProject>(`/projects/${encodeURIComponent(id)}`),
   listProjects: (params: Record<string, string | number | boolean> = {}) => request<ProjectList>(`/projects?${new URLSearchParams(Object.entries(params).map(([k,v]) => [k, String(v)]))}`),
   updateMetadata: (id: string, patch: { title?: string; favorite?: boolean; archived?: boolean; tags?: string[] }) => request<PresentationSummary>(`/projects/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) }),
@@ -64,13 +84,18 @@ export const api = {
 
   // One-shot file parsing utility.
   uploadAndParse: async (file: File): Promise<UploadParseResult> => {
+    const version = sessionVersion;
     const formData = new FormData();
     formData.append('file', file);
     const response = await fetch(`${API_BASE}/upload/parse`, {
       method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'X-Folio-Request':'1', 'X-CSRF-Token':csrfToken },
       body: formData,
     });
+    if (version !== sessionVersion) throw new Error('账号已切换，请重新添加文档');
     if (!response.ok) {
+      if (response.status === 401) sessionExpired();
       const error = await response.json().catch(() => ({ detail: 'Upload failed' }));
       throw new Error(error.detail || `HTTP ${response.status}`);
     }

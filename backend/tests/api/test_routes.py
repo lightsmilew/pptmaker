@@ -19,8 +19,9 @@ from app.storage.memory import memory_store
 
 
 @pytest.fixture
-def client():
-    return TestClient(app)
+def client(tmp_path, monkeypatch, authenticated_client):
+    monkeypatch.setenv("FOLIO_DB", str(tmp_path / "users.sqlite3"))
+    return authenticated_client()
 
 
 @pytest.fixture(autouse=True)

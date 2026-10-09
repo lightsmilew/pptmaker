@@ -61,7 +61,7 @@ class PPTXGenerator:
                 for i,line in enumerate(e["text"].split("\n")):
                     p = frame.paragraphs[0] if i == 0 else frame.add_paragraph()
                     p.text = line
-                    p.font.name = "Microsoft YaHei"
+                    p.font.name = e.get("font_name", "Microsoft YaHei")
                     p.font.size = Pt(e["size"])
                     p.font.bold = e["bold"]
                     p.font.color.rgb = RGBColor(*rgb(e["color"]))

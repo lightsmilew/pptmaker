@@ -4,7 +4,8 @@ from copy import deepcopy
 from typing import Any, Dict, List
 
 from ..state import AgentState
-from ...tools.slide_scene import template_layout
+from ...tools.slide_scene import template_layout, get_theme
+from ...tools.slide_quality import review_scene
 
 
 def revision_planner_node(state: AgentState) -> AgentState:
@@ -15,21 +16,32 @@ def revision_planner_node(state: AgentState) -> AgentState:
     state["workflow"].current_node = "revision_planner"
     page.status = "revising"
     state["layout_retry_count"] = state.get("layout_retry_count", 0) + 1
-    plan = _generate_revision_plan(page, page.review_issues)
+    plan = _generate_revision_plan(page, page.review_issues, state["project"].spec.get("style", "商务简约"))
     page.layout_json = _apply_revision_operations(page.layout_json, plan["operations"])
     page.layout_type = page.layout_json["layout_type"]
     return state
 
 
-def _generate_revision_plan(page: Any, issues: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _generate_revision_plan(page: Any, issues: List[Dict[str, Any]], style="商务简约") -> Dict[str, Any]:
     count = max(len(getattr(page, "key_points", [])), len(getattr(page, "bullet_points", [])))
     page_type = getattr(page, "page_type", "content")
     page_type = getattr(page_type, "value", page_type)
     current = getattr(page, "layout_json", {}) or {}
     # Wider regions help a crowded three-column layout. Canonical geometry also
     # repairs accidental overlaps and elements outside the canvas.
-    suggested = "two_column" if current.get("layout_type") == "three_column" else ""
-    layout = template_layout(page_type, count, bool(getattr(page, "subtitle", "")), suggested)
+    candidates = [template_layout(page_type, count, bool(getattr(page, "subtitle", "")), suggested,
+                                 family=get_theme(style)["family"], density=current.get("content_density", "balanced"))
+                  for suggested in ("two_column", "title_content")]
+    # Measure candidate geometry with the actual text, rather than repeating the
+    # same template that just overflowed. Preserve content and native evidence.
+    def quality(layout):
+        if not hasattr(page, "to_dict"):
+            return 0
+        data = page.to_dict()
+        data["layout"]["layout_json"] = layout
+        result = review_scene(data, style)
+        return result["score"]
+    layout = max(candidates, key=quality)
     return {"operations": [{"op": "change_layout", "changes": {"layout": layout}}],
             "reason": "使用经过测量的模板修复布局", "expected_improvement": "恢复边界、间距与阅读顺序"}
 
