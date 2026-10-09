@@ -14,6 +14,7 @@ from .account_repository import database_path, AccountRepository
 
 user_context = ContextVar("folio_user", default=None)
 SESSION_COOKIE = "folio_session"
+ADMIN_COOKIE = "folio_admin_session"
 
 
 def password_hash(password, salt=None):
@@ -52,50 +53,62 @@ class AuthRepository:
                     id TEXT PRIMARY KEY, user_id TEXT NOT NULL, filename TEXT NOT NULL,
                     path TEXT NOT NULL, content TEXT NOT NULL, size INTEGER NOT NULL, created_at TEXT NOT NULL);
             """)
+            db.execute("BEGIN IMMEDIATE")
+            if "role" not in {r[1] for r in db.execute("PRAGMA table_info(users)")}:
+                db.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'")
+            if "scope" not in {r[1] for r in db.execute("PRAGMA table_info(sessions)")}:
+                db.execute("ALTER TABLE sessions ADD COLUMN scope TEXT NOT NULL DEFAULT 'user'")
 
     def connect(self):
         db = sqlite3.connect(self.path, timeout=15)
         db.row_factory = sqlite3.Row
         return db
 
-    def register(self, email, password, display_name):
+    def register(self, email, password, display_name, *, _role="user"):
         uid = "user_" + uuid.uuid4().hex
         profile = dict(account_id=uid, display_name=display_name, email=email, company="", occupation="",
                        bio="", timezone="Asia/Shanghai", created_at=datetime.now(timezone.utc).isoformat(),
                        preferences=dict(style="商务简约", page_count=8, language="zh-CN", layout_mode="auto", content_density="balanced"))
         hashed = password_hash(password)
         with self.connect() as db:
-            db.execute("INSERT INTO users(id,email,password_hash,profile,membership) VALUES (?,?,?,?,?)",
-                       (uid, email, hashed, json.dumps(profile, ensure_ascii=False), json.dumps({"tier":"basic"})))
+            db.execute("INSERT INTO users(id,email,password_hash,profile,membership,role) VALUES (?,?,?,?,?,?)",
+                       (uid, email, hashed, json.dumps(profile, ensure_ascii=False), json.dumps({"tier":"basic"}), _role))
         return uid
 
-    def authenticate(self, email, password):
+    def create_admin(self, email, password, display_name="Folio 管理员"):
+        """Create a distinct identity; a duplicate address fails without changing its owner."""
+        return self.register(email, password, display_name, _role="admin")
+
+    def authenticate(self, email, password, scope="user"):
         with self.connect() as db:
             row = db.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
         # Spend the same password-hashing work for an unknown address.
         stored = row["password_hash"] if row else "scrypt$" + "00"*32 + "$" + "00"*64
         valid = verify_password(password, stored)
-        return row["id"] if valid and row and row["status"] == "active" else None
+        return row["id"] if valid and row and row["status"] == "active" and row["role"] == scope else None
 
     def user(self, uid):
         with self.connect() as db:
-            row = db.execute("SELECT id,email,status FROM users WHERE id=?", (uid,)).fetchone()
+            row = db.execute("SELECT id,email,status,role FROM users WHERE id=?", (uid,)).fetchone()
         return dict(row) if row else None
 
-    def create_session(self, uid):
+    def create_session(self, uid, scope="user"):
+        user = self.user(uid)
+        if not user or user["status"] != "active" or user["role"] != scope:
+            raise ValueError("账号与会话入口不匹配")
         token, csrf = secrets.token_urlsafe(48), secrets.token_urlsafe(32)
         duration = max(1, min(30, int(os.getenv("FOLIO_SESSION_DAYS", "7")))) * 86400
         with self.connect() as db:
             db.execute("DELETE FROM sessions WHERE expires_at<=?", (time.time(),))
-            db.execute("INSERT INTO sessions VALUES (?,?,?,?,?)",
-                       (token_hash(token), uid, csrf, time.time()+duration, time.time()))
+            db.execute("INSERT INTO sessions(token_hash,user_id,csrf,expires_at,created_at,scope) VALUES (?,?,?,?,?,?)",
+                       (token_hash(token), uid, csrf, time.time()+duration, time.time(), scope))
         return token, csrf, duration
 
     def session(self, token):
         if not token or len(token) > 256:
             return None
         with self.connect() as db:
-            row = db.execute("SELECT s.*,u.email FROM sessions s JOIN users u ON u.id=s.user_id "
+            row = db.execute("SELECT s.*,u.email,u.role FROM sessions s JOIN users u ON u.id=s.user_id "
                              "WHERE token_hash=? AND expires_at>? AND u.status='active'",
                              (token_hash(token), time.time())).fetchone()
         return dict(row) if row else None

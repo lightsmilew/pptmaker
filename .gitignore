@@ -1,5 +1,7 @@
 # Environment variables
 .env
+# User-provided TLS files; the release builder reads them locally.
+/deploy/
 
 # Python
 __pycache__/

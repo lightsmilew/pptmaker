@@ -11,6 +11,7 @@ from .api.workspace import router as workspace_router
 from .api.websocket import websocket_handler
 from .api.auth import router as auth_router, allowed_origins
 from .api.files import router as files_router
+from .api.admin import router as admin_router
 
 
 @asynccontextmanager
@@ -47,6 +48,7 @@ app.include_router(auth_router)
 app.include_router(files_router)
 app.include_router(router)
 app.include_router(workspace_router)
+app.include_router(admin_router)
 
 
 @app.middleware("http")

@@ -1,158 +1,349 @@
-# Folio 部署与数据维护
+# Folio 发布包部署指南
 
-更新：2026-10-08。Folio 由公开首页、注册 / 登录、React 工作台和 FastAPI 后端组成。支持多用户，各账号资料、作品、附件、用量与额度存入服务端。生成队列、连接和项目缓存仍在进程内，因此使用 **一个后端 worker**。
+更新：2026-10-09。本文以 **Ubuntu 24.04 / Debian、Nginx、systemd 和域名 `lightsmile.ink`** 为例。生产步骤从构建后的发布包执行，服务器无需克隆仓库、安装 Node 或运行 Vite。
 
-## 1. 本地开发
+Folio 使用一个后端 worker：生成任务、项目缓存与实时广播仍在进程内。后端 wheel 是可安装的 Python 包，仍需 Python 3.10+，不是无需运行环境的独立二进制程序。wheel 可包含 Python 模块；生产不使用 editable 安装或源码目录启动。
 
-在仓库的 `backend` 中安装 `python -m pip install -e ".[dev]"`，首次复制 `.env.example` 到 `.env` 并配置模型。已有 `.env` 不要覆盖。
+## 1. 在开发机构建发布包
+
+构建机需要 Python 3.10+（含 pip）、Node.js 18+ 和 npm。首次构建需要访问 npm / Python 包索引。以下命令从仓库根目录执行。
+
+你的证书放在本地 `deploy/`：
+
+```text
+deploy/
+  lightsmile.ink.pem   # PEM 站点证书，建议包含中间证书链
+  lightsmile.ink.key   # 与证书匹配、可非交互加载的私钥
+```
+
+脚本验证证书 / 私钥可匹配加载，不打印私钥。不复制后端 `.env`、数据库、上传资料、测试目录、node_modules 或 Git 元数据。`deploy/` 和输出 `dist/` 被 Git 忽略。
+
+Windows：
 
 ```powershell
-# backend 终端
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
-# frontend 终端
-npm ci
-npm run dev -- --host 127.0.0.1
+python scripts/build.py --domain lightsmile.ink --release-name folio-0.1.0-r1
+# 等价入口：
+# .\scripts\build.bat --domain lightsmile.ink --release-name folio-0.1.0-r1
 ```
 
-访问 http://127.0.0.1:5173 。前端开发代理覆盖 `/api`、`/ws`、`/storage`。后端 `http://127.0.0.1:8000/` 是服务信息 JSON；`/docs` 是接口文档。
+Linux / macOS：
 
-开发可以使用 `--reload`，但重载会中断制作；重启后历史标为需重试。长时间生成时使用无 reload 的单进程。
-
-## 2. 生产构建与服务
-
-```sh
-cd frontend
-npm ci
-npm run build
-# 将 frontend/dist 交给静态服务器
-cd ../backend
-python -m pip install -e .
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
+```bash
+bash scripts/build.sh --domain lightsmile.ink --release-name folio-0.1.0-r1
 ```
 
-固定后端工作目录为 `backend`，或使用绝对 `STORAGE_PATH` / `FOLIO_DB`。默认数据库路径仍为 `backend/storage/pptmaker.sqlite3`，实际数据在服务端；新账号不会继承原共享记录。指定新数据库路径会形成全新账号与工作空间集合，不自动复制数据。正式部署建议指定持久磁盘路径。
+默认执行 `npm ci`、TypeScript / Vite 构建、后端 wheel 构建、模板渲染和归档。已有依赖且无需重装时可加 `--skip-npm-ci`。省略 `--release-name` 生成含 UTC 时间的唯一名字；相同名称的发布包不覆盖，下一次使用 `folio-0.1.0-r2` 等新名字。
 
-前端生成包使用同源 `/api`、`/ws`、`/storage` URL；`VITE_BACKEND_HOST` 只改变 Vite 开发代理，不能替代生产反向代理。`vite preview` 只预览前端产物，不作为完整生产部署方案。
-
-Linux 可使用 systemd（路径需按实际部署替换）：
-
-```ini
-[Unit]
-Description=Folio Studio API
-After=network.target
-
-[Service]
-User=folio
-WorkingDirectory=/opt/folio/backend
-EnvironmentFile=/opt/folio/backend/.env
-ExecStart=/opt/folio/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
-Restart=on-failure
-RestartSec=3
-
-[Install]
-WantedBy=multi-user.target
+```text
+dist/
+  folio-0.1.0-r1.zip
+  folio-0.1.0-r1.zip.sha256
+  folio-0.1.0-r1.tar.gz
+  folio-0.1.0-r1.tar.gz.sha256
+  folio-0.1.0-r1/
+    backend/folio_studio-0.1.0-py3-none-any.whl
+    frontend/index.html, assets/, folio-mark.svg, ...
+    deployment/install.sh
+    deployment/folio.env.example
+    deployment/folio.service
+    deployment/nginx/folio.conf
+    deployment/nginx/folio-http.conf
+    tls/lightsmile.ink.pem
+    tls/lightsmile.ink.key
+    release.json
+    SHA256SUMS
+    DEPLOY.md
 ```
 
-服务账号需能写数据库目录和产物目录，但不需要系统管理权限。Windows 可用已有服务管理器运行同样的单 worker 命令，保持固定工作目录。
+Nginx 域名、证书路径及生产 Origin 按 `--domain` 渲染。**含证书的包包含私钥，只通过受控方式传到自己的服务器，不上传公共 Release、网盘或静态网站目录。**分享不含证书的安装包可用 `--without-certificates --domain lightsmile.ink`；部署前另行安装 TLS 文件。
 
-## 3. 静态服务器与反向代理
+可选离线包：在与目标服务器 **相同 Linux / CPU / Python 版本** 的环境加 `--bundle-dependencies`，附带 `wheelhouse/`，安装脚本使用 `--no-index`。默认包只包含应用 wheel，安装时从包索引解析依赖；依赖范围来自 pyproject.toml，目前没有完整跨平台依赖锁。Windows 构建的普通应用包可用于 Linux，Windows 的依赖 wheelhouse 不可用于 Linux。
 
-示例 Nginx 配置。公开首页可匿名访问，业务 API / WebSocket / 文件由 FastAPI 验证 Cookie、CSRF、Origin 和归属。部署使用 HTTPS，`FOLIO_COOKIE_SECURE=true`，`FOLIO_ALLOWED_ORIGINS=https://folio.example.com`（改成真实域名）。前后端保持同源，代理传递 Cookie 和 Origin，不将 `/storage` 配为公开静态磁盘目录。
+## 2. 准备服务器与 DNS
 
-```nginx
-server {
-    listen 443 ssl;
-    server_name folio.example.com;
-    root /opt/folio/frontend/dist;
-    index index.html;
-    client_max_body_size 11m;
+通过 SSH 登录自己的 Linux 服务器，账号需要 sudo。将 `lightsmile.ink` 的 A 记录指向公网 IPv4；只有配置 IPv6 监听与防火墙后才添加 AAAA 记录。
 
-    # 配置真实 TLS 证书；Cookie 与 Origin 默认会转发到后端。
-    # /storage 必须经过后端验证，不能 alias 为公开磁盘目录。
+云安全组 / 防火墙开放 SSH 管理端口、TCP 80 和 443。API 只监听 127.0.0.1:8000，不开放公网 8000；生产不用 5173。
 
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-    location /api/ {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 300s;
-    }
-    location /ws/ {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_read_timeout 3600s;
-        proxy_send_timeout 3600s;
-    }
-    location /storage/ {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_read_timeout 300s;
-    }
-}
+```bash
+sudo apt update
+sudo apt install -y python3 python3-venv python3-pip nginx openssl fonts-noto-cjk
+python3 --version
+sudo systemctl enable --now nginx
+getent ahostsv4 lightsmile.ink
 ```
 
-浏览器在 HTTPS 下自动使用 WSS。静态服务器不能把 API 请求回退成 `index.html`；否则页面会收到 HTML 而非 JSON。WebSocket 必须传 Upgrade 头。
+`fonts-noto-cjk` 用于中文 PNG 预览，绘制器读取 `/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc`。PPTX 不嵌入字体，打开演示的电脑仍需相应字体。
 
-## 4. 服务端账号、会员与预算
+创建独立服务账号与目录（首次）：
+
+```bash
+id folio >/dev/null 2>&1 || sudo useradd --system --user-group --home-dir /var/lib/folio --shell /usr/sbin/nologin folio
+sudo install -d -m 0755 /opt/folio/releases
+sudo install -d -m 0750 -o root -g folio /etc/folio
+sudo install -d -m 0700 -o root -g root /etc/folio/tls
+sudo install -d -m 0700 -o folio -g folio /var/lib/folio
+sudo install -d -m 0700 -o folio -g folio /var/lib/folio/storage
+```
+
+| 目录 | 用途 |
+|---|---|
+| `/opt/folio/releases/<发布名>` | 每次发布独立安装包与 venv，由 root 管理 |
+| `/opt/folio/current` | 当前发布的符号链接 |
+| `/etc/folio/runtime/folio.env` | 生产配置，folio 专属可写目录；管理页可更新允许的运行项 |
+| `/etc/folio/tls` | Nginx 使用的证书与私钥 |
+| `/var/lib/folio/folio.sqlite3` | 用户、会话、项目与用量数据库 |
+| `/var/lib/folio/storage` | PPTX、预览、上传原文件等持久数据 |
+
+## 3. 上传、校验与安装
+
+开发机上传到自己的服务器，替换实际 SSH 账号与地址：
+
+```powershell
+scp dist/folio-0.1.0-r1.tar.gz dist/folio-0.1.0-r1.tar.gz.sha256 deploy@YOUR_SERVER_IP:/tmp/
+```
+
+服务器上：
+
+```bash
+FOLIO_RELEASE=folio-0.1.0-r1
+cd /tmp
+chmod 600 "$FOLIO_RELEASE.tar.gz"
+sha256sum --check "$FOLIO_RELEASE.tar.gz.sha256"
+sudo tar -xzf "$FOLIO_RELEASE.tar.gz" -C /opt/folio/releases
+FOLIO_RELEASE_DIR="/opt/folio/releases/$FOLIO_RELEASE"
+sudo bash "$FOLIO_RELEASE_DIR/deployment/install.sh"
+```
+
+安装脚本先校验 `SHA256SUMS`，再建立该发布专用 `.venv`，安装 wheel 和运行依赖，执行 `pip check`。失败时先解决网络 / 依赖问题；成功前不要切换 current。重试安装需使用新的发布目录，不覆盖已有 venv。
+
+包索引下载较慢时，可只为这次安装指定 HTTPS 镜像，避免改变系统全局配置。例如 [清华镜像站官方说明](https://mirrors.tuna.tsinghua.edu.cn/help/pypi/) 提供的地址：
+
+```bash
+# 替代上面的安装命令；尚未创建 .venv 时使用。
+sudo env PIP_INDEX_URL=https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple bash "$FOLIO_RELEASE_DIR/deployment/install.sh"
+```
+
+确保静态资源可被 Nginx 读取，TLS 源目录仅 root 可读：
+
+```bash
+sudo chmod 755 "$FOLIO_RELEASE_DIR"
+sudo find "$FOLIO_RELEASE_DIR/frontend" -type d -exec chmod 755 {} \;
+sudo find "$FOLIO_RELEASE_DIR/frontend" -type f -exec chmod 644 {} \;
+sudo chmod 700 "$FOLIO_RELEASE_DIR/tls"
+```
+
+不含证书的包跳过最后一行，按第 5 节另外安装证书。
+
+## 4. 配置后端与 systemd
+
+首次复制配置，已有生产配置不要覆盖：
+
+```bash
+sudo install -d -m 0700 -o folio -g folio /etc/folio/runtime
+sudo test -f /etc/folio/runtime/folio.env || sudo install -m 0600 -o folio -g folio "$FOLIO_RELEASE_DIR/deployment/folio.env.example" /etc/folio/runtime/folio.env
+sudoedit /etc/folio/runtime/folio.env
+```
+
+至少检查以下值，API Key 在服务器自行填写：
 
 ```dotenv
-FOLIO_SESSION_DAYS=7
-FOLIO_COOKIE_SECURE=true
-FOLIO_ALLOWED_ORIGINS=https://folio.example.com
-FOLIO_MONTHLY_OUTPUT_LIMIT=0
+DEBUG=false
+STORAGE_PATH=/var/lib/folio/storage
+FOLIO_DB=/var/lib/folio/folio.sqlite3
+LLM_PROVIDER=openai
+OPENAI_API_KEY=填写真实密钥
+OPENAI_BASE_URL=https://api.deepseek.com
+OPENAI_MODEL=deepseek-flash
+OPENAI_MAX_TOKENS=12000
 PPT_CONCURRENCY=3
 PPT_REVIEW_MODE=local
+PPT_MAX_REVIEW_ROUNDS=2
+FOLIO_COOKIE_SECURE=true
+FOLIO_ALLOWED_ORIGINS=https://lightsmile.ink
+FOLIO_SESSION_DAYS=7
+FOLIO_MONTHLY_OUTPUT_LIMIT=0
 ```
 
-开发环境通过 `.env.example` 的 localhost Origin 和 `FOLIO_COOKIE_SECURE=false` 使用 HTTP。生产必须改为自己的 HTTPS Origin 和 Secure Cookie，配置变更后重启。不要使用通配符 Origin。
+模型地址 / 名称需供应商支持。Anthropic 配置 `LLM_PROVIDER=anthropic` 及 `ANTHROPIC_API_KEY`、`ANTHROPIC_MODEL`、`ANTHROPIC_BASE_URL`。认证用户额度来自会员方案或账号独立额度；`FOLIO_MONTHLY_OUTPUT_LIMIT` 仅用于无用户身份的离线调用。默认 local 检查不调用视觉模型。
 
-用户从公开首页注册，默认 Folio Basic，不会继承旧共享账号的数据；本次不做旧数据迁移。登录邮箱不能通过资料 API 改写；注册、登录有限流，退出会话立即撤销，修改密码会撤销其他设备旧会话。会话、随机盐密码散列、账号资料都在服务器，不依赖浏览器持久存储。
+`folio-server --env-file` 在导入应用前加载指定配置，已有进程环境变量优先。生产使用绝对数据路径，升级不会因 wheel 目录变化而生成另一数据库。服务固定单 worker、不启用 reload，只信任本机 Nginx 的代理头。
 
-管理员从仓库根目录配置已注册用户：
+首次激活与启动：
 
-```powershell
-python scripts/manage_user.py --email author@example.com --tier plus --monthly-output-limit 100000
-python scripts/manage_user.py --email author@example.com --expires-at 2027-01-01T00:00:00+00:00
+```bash
+sudo ln -s "$FOLIO_RELEASE_DIR" /opt/folio/current
+sudo install -m 0644 "$FOLIO_RELEASE_DIR/deployment/folio.service" /etc/systemd/system/folio.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now folio
+sudo systemctl status folio --no-pager
+curl --fail http://127.0.0.1:8000/health
 ```
 
-可用 `--tier basic` 取消 Plus，`--expires-at none` 清除到期时间，`--monthly-output-limit 0` 不限，未传字段保持原值。脚本读取同一后端 `.env` / 数据库，每个用户独立配置，保存后查询即生效；无需通过网页伪造权益。Basic / Plus 均提供当前基础功能，尚未接入邮件验证、找回密码、在线支付或自动续费。
+应返回 `{"status":"healthy"}`。日志：
 
-月度预算使用 UTC 自然月，用户级预算优先于 `FOLIO_MONTHLY_OUTPUT_LIMIT` 默认值，0 不限。调用先原子预留完整预算，再按实际输出结算，30 分钟后释放未完成预留。不同用户独立扣减，重启不会清空账本；进程内结果缓存和调用诊断会清空。模型由服务管理员配置，额度不是供应商余额。
-
-## 5. 数据与备份
-
-数据库和整个产物目录需要持久磁盘并一起备份：数据库含 users、sessions、projects、uploads、usage_ledger、output_reservations；产物含 PPTX、previews 和 uploads 原文件。用户不应能直接读取服务器磁盘 / 数据库。前端保存的是临时草稿；正式账号、作品、附件和用量都来自后端。不要把 `.env`、数据库或凭据提交 Git，也不要把持久数据只留在临时容器层。
-
-SQLite 支持在线 backup；运行以下 Python 片段时工作目录为 backend，路径按实际配置设置：
-
-```python
-import sqlite3
-from pathlib import Path
-Path("backups").mkdir(exist_ok=True)
-with sqlite3.connect("storage/pptmaker.sqlite3") as source:
-    with sqlite3.connect("backups/folio.sqlite3") as destination:
-        source.backup(destination)
+```bash
+sudo journalctl -u folio -n 100 --no-pager
+sudo journalctl -u folio -f
 ```
 
-另行复制产物目录。还原时停止服务，恢复数据库与对应产物，再启动同一工作目录的服务。归档只是标记，不释放磁盘空间；网页不提供永久删除，避免误删历史。
+服务账号可写 `/var/lib/folio` 与 `/etc/folio/runtime`；systemd 限制其他路径写入。前者保存应用数据，后者允许管理页原子更新运行配置。重启 / 升级会中断制作，启动后未完成任务变为可重试，已有页面、历史与用量保留。
 
-## 6. 部署验收与故障定位
+## 5. 安装你的域名证书
 
-1. `/health` 返回 healthy，`/docs` 显示 Folio Studio API。
-2. 前端显示 Folio 新 Logo，侧栏可打开工作空间、创作方案、个人中心；设计目录显示 16 种风格。
-3. 资料保存并刷新后保留；会员配置与预算显示正确，不返回密钥。
-4. 创建 4 页演示，WebSocket 正常，完成后出现手动下载按钮，不自动下载；PNG 可读，用量更新。
-   制作中刷新 / 关闭页面，后端应继续完成；重连恢复状态和有效下载链接。已完成项目再次点击继续不增加模型调用，同一项目运行中重复提交不创建并发副本。
-5. 重启后旧演示可打开且不会自动重新制作；正在制作的任务变为可重试。
-6. 390px 手机布局无水平溢出，菜单、表单和预览可操作。
+当前包已包含 `lightsmile.ink.pem` 与 `.key`，无需 Certbot：
 
-连接失败：确认 `/ws` 代理、Upgrade 头、端口和模型配置；配置变更需重启。下载 404：确认固定 `STORAGE_PATH` 和产物是否被搬走。空历史：检查 `FOLIO_DB` 是否指向原数据库。额度不足：查看预留和输出上限，别通过给浏览器伪造额度解决。多 worker / 多实例可能导致状态与广播不一致，应先增加持久任务队列和跨进程事件，再扩展部署。
+```bash
+sudo install -m 0644 -o root -g root "$FOLIO_RELEASE_DIR/tls/lightsmile.ink.pem" /etc/folio/tls/lightsmile.ink.pem
+sudo install -m 0600 -o root -g root "$FOLIO_RELEASE_DIR/tls/lightsmile.ink.key" /etc/folio/tls/lightsmile.ink.key
+sudo openssl x509 -in /etc/folio/tls/lightsmile.ink.pem -noout -dates -ext subjectAltName
+sudo openssl x509 -in /etc/folio/tls/lightsmile.ink.pem -noout -checkend 0
+```
 
-页面检查建议不会阻止可用演示导出：`PPT_MAX_REVIEW_ROUNDS` 是初次检查后的调整次数，默认 2，限制 1–4。视觉复核异常会回退本地检查并保留警告；未消除的建议可在制作页继续调整。若实际写作 / 绘制 / 导出失败，重试会复用已有内容并跳过已完成且通过的页面；`generate_parallel` 的 `force=true` 才重新制作全部页面。
+确认 SAN 覆盖 lightsmile.ink，证书仍有效。PEM 应含站点证书及必要的中间证书，仅有叶证书可能导致浏览器链验证失败。构建校验匹配关系，不替代有效期、域名与可信链验收。加密私钥需准备可非交互启动的服务器配置；脚本不收集或打印解密密码。
 
-网页以 `run_workflow` 提交一次意图，后端编排剩余步骤。开始 / 继续、调整、导出使用单进程后台任务，浏览器断开不会取消；部署重启仍会中断，启动时恢复为可重试。需要跨进程可靠执行时须增加持久任务队列；当前不要启用多个 worker。低层 parse / plan 兼容命令仍绑定连接，不用于网页自动编排。
+私钥不进入 frontend。Nginx 只将 frontend 作为网站根目录；数据库、上传目录、release 根目录和 tls 目录不得公开为 alias。
+
+## 6. 配置 Nginx 和 HTTPS
+
+使用 **包内已替换域名的模板**，不是仓库中含 `@@DOMAIN@@` 的原始模板：
+
+```bash
+sudo install -m 0644 "$FOLIO_RELEASE_DIR/deployment/nginx/folio.conf" /etc/nginx/sites-available/folio
+sudo ln -s /etc/nginx/sites-available/folio /etc/nginx/sites-enabled/folio
+sudo nginx -t
+sudo systemctl reload nginx
+curl -I http://lightsmile.ink
+curl --fail https://lightsmile.ink/health
+```
+
+HTTP 应重定向 HTTPS，HTTPS /health 返回 healthy。sites-enabled/folio 已存在时保留链接，只更新 sites-available/folio。其他站点不要删除；同域名冲突需调整后再 `nginx -t`。
+
+模板包含：
+
+- 静态首页及前端路由回退 index.html；版本化 assets 长期缓存，index.html 重新验证。
+- `/api/` 保留路径转发，传递 Host、协议与真实客户端 IP。
+- `/ws/` 传递 Upgrade / Connection，HTTP/1.1，读写超时 3600 秒。
+- `/storage/` 转发后端验证 Cookie 与归属，绝不公开磁盘；`/health` 用于探活。
+- 11 MiB 请求体上限，为 10 MiB 附件及 multipart 留出空间。
+- TLS 1.2 / 1.3；Cookie / Origin 原样传递，前后端同源 `https://lightsmile.ink`。
+
+公网 `/docs` 和 `/openapi.json` 默认不代理；从服务器本机访问 `http://127.0.0.1:8000/docs`，或通过 SSH 端口转发查看。VITE_BACKEND_HOST 只改变开发代理，生产连接由 Nginx 管理。WS 规则依据 [Nginx 官方文档](https://nginx.org/en/docs/http/websocket.html)。
+
+## 7. 生产验收
+
+1. 打开 https://lightsmile.ink，证书可信、Folio 首页 / Logo 正常，HTTP 跳 HTTPS。
+2. 注册验收账号，检查工作空间、创作方案、个人中心、16 种风格与资料保存。
+3. 上传 / 拖入参考文档，创建 4 页演示，确认 WS 状态 101。真实制作会产生模型费用。
+4. 制作时刷新 / 关闭页面，后端继续；重连恢复状态。完成后手动下载，不自动下载。
+5. PNG / PPTX 可下载，预算与用量更新；第二账号不能读第一账号的项目与文件。
+6. 已完成演示打开不重复调用模型；重启后历史保留，未完成制作可显式重试。
+7. 390px 手机布局无横向溢出，菜单、表单和预览可操作。
+
+health 只表示进程可用，不代表 API Key、余额、磁盘或完整生成链路可用。
+
+## 8. 初始化独立管理员与会员管理（无需源码）
+
+管理员不从用户首页登录，也不从已有用户提升身份。首次部署后创建**新邮箱的专用账号**；命令生成随机密码并写入指定的新文件，不接受命令行明文密码，不覆盖已有邮箱或凭据文件。
+
+```bash
+sudo -u folio /opt/folio/current/.venv/bin/folio-create-admin --env-file /etc/folio/runtime/folio.env --email admin@lightsmile.ink --credentials-file /var/lib/folio/admin-bootstrap.txt
+sudo cat /var/lib/folio/admin-bootstrap.txt
+```
+
+访问 `https://lightsmile.ink/#/admin/login`，用文件内的账号登录，在“管理账号”修改初始密码，然后移除该凭据文件。管理页面：概览、账号管理、会员权益、模型与环境、用量与额度、活动记录。普通用户 Cookie 与管理 Cookie 分开，管理接口需要管理员身份及 CSRF 校验。
+
+`.env` 修改需要 `/etc/folio/runtime` 可写，以及 systemd 的 `ReadWritePaths=/var/lib/folio /etc/folio/runtime`。目录归 folio、权限 0700，文件 0600；不要开放 `/etc/folio/tls` 或整个 `/etc/folio` 的写权限。CLI 的 `--env-file` 自动指定管理页使用的配置文件。模型参数保存后立即应用，正在制作时拒绝修改；数据库、文件目录、来源白名单和 HTTPS 安全设置仍需离线编辑并重启服务。配置页的密钥永不回传，普通页面不能读取配置。
+
+新用户默认普通会员（50,000 月度输出 Token、最多 20 页、单份并行 1 页）；Plus（150,000 / 35 页 / 2）、Pro（500,000 / 50 页 / 3）、Studio（2,000,000 / 50 页 / 6）。实际并行不超过全局 `PPT_CONCURRENCY`。方案可在管理页修改；用户可单独配置额度或到期时间，到期恢复普通权益。所有限额由后端执行；无在线支付和自动续费。
+
+“用量与额度”提供持久调用统计，DeepSeek 官方接口可查询真实余额；其他接口明确显示不支持余额查询。日志包含登录结果 / IP / User-Agent、操作与制作阶段，不记录密码、密钥、提示词和模型正文。启用前的登录与活动不会伪造补齐，现有项目可在生成记录中查看。
+
+应急时还可以使用 CLI 调整已经注册的普通用户：
+
+```bash
+sudo -u folio /opt/folio/current/.venv/bin/folio-manage-user --env-file /etc/folio/runtime/folio.env --email author@example.com --tier plus --monthly-output-limit 100000
+sudo -u folio /opt/folio/current/.venv/bin/folio-manage-user --env-file /etc/folio/runtime/folio.env --email author@example.com --expires-at 2027-01-01T00:00:00+00:00
+```
+
+`--tier` 支持 basic / plus / pro / studio；`--expires-at none` 清除到期，`--monthly-output-limit 0` 不限，未传字段保持原值。恢复方案默认额度请在管理页关闭账号独立额度。开发时从 `backend` 目录运行 `python ../scripts/create_admin.py --env-file .env` 或 `python ../scripts/manage_user.py --env-file .env`，并补齐各自必填参数；这样与开发服务使用同一配置和数据库。
+
+## 9. 升级、回滚与续期
+
+先备份并等待活跃制作结束。用新发布名构建、上传、解压并安装到新目录；.env、证书与数据保持独立。
+
+```bash
+FOLIO_RELEASE=folio-0.1.0-r2
+FOLIO_RELEASE_DIR="/opt/folio/releases/$FOLIO_RELEASE"
+# 先按第 3 节完成新包校验、解压、安装及权限检查。
+readlink -f /opt/folio/current
+sudo systemctl stop folio
+sudo ln -s "$FOLIO_RELEASE_DIR" /opt/folio/current.next
+sudo mv -Tf /opt/folio/current.next /opt/folio/current
+sudo systemctl start folio
+sudo nginx -t
+sudo systemctl reload nginx
+curl --fail https://lightsmile.ink/health
+```
+
+记录切换前路径，如 /opt/folio/releases/folio-0.1.0-r1。回滚同样停服务，让 current.next 指向旧发布，原子替换 current，启动并 reload Nginx。不要在共享 venv 中直接降级，保留各发布独立依赖。
+
+代码回滚不会撤销数据库结构变化；跨版本结构变更需恢复数据库备份及对应产物。没有通用 schema downgrade 工具，不能保证任意旧版本直接读新数据库。
+
+证书续期：从供应商获取新文件，检查域名、日期与匹配关系，按第 5 节的路径 / 权限替换，nginx -t 后 reload。项目不自动续签你的证书；替换证书不必重启后端。
+
+## 10. 数据备份与恢复
+
+数据库和整个 storage 必须一起备份，配置 / 证书也保存在受控位置。下例先停服务，保持快照与产物一致；不要仅复制正在写入的 SQLite 主文件而漏掉 WAL。
+
+```bash
+FOLIO_BACKUP="/var/backups/folio/$(date -u +%Y%m%dT%H%M%SZ)"
+sudo install -d -m 0700 "$FOLIO_BACKUP"
+sudo systemctl stop folio
+sudo tar -czf "$FOLIO_BACKUP/data.tar.gz" -C /var/lib/folio .
+sudo tar -czf "$FOLIO_BACKUP/config-and-tls.tar.gz" -C /etc/folio .
+sudo chmod 600 "$FOLIO_BACKUP"/*.tar.gz
+sudo systemctl start folio
+```
+
+确认 tar 成功再继续。备份失败时先恢复服务，再处理磁盘 / 权限。恢复时停服务，保存当前目录，将对应数据恢复到 /var/lib/folio、配置恢复到 /etc/folio，恢复 folio 数据目录所有权及 0700 / 0640 / 0600 权限，再启动并检查历史文件。
+
+归档仅标记，不释放磁盘。用量、会话、预算预留在数据库；结果与诊断缓存仍在内存。不要只将持久数据放在临时容器层。
+
+## 11. 故障排查
+
+| 现象 | 处理 |
+|---|---|
+| Nginx 502 | systemctl status folio、journalctl、本机 8000/health；current/.venv 是否已安装 |
+| 证书 / 配置错误 | nginx -t；私钥权限、证书路径、SAN、日期与中间证书链 |
+| WS 403 / 登录失效 | 域名与 HTTPS Origin 完全一致；Secure Cookie、Host / Origin 未改写 |
+| WS 空闲后断开 | Upgrade / Connection 和读写超时；重连应恢复后台状态 |
+| 上传 413 | Nginx 11m 与后端 10 MiB 文件上限 |
+| API 收到 HTML | /api 被前端回退覆盖；proxy_pass 不加尾部斜杠 |
+| 中文预览方框 | fonts-noto-cjk 与字体可读性，安装后重启 |
+| 空历史 / 下载 404 | 绝对 FOLIO_DB / STORAGE_PATH、所有权及文件是否被移动 |
+| pip 安装失败 | Python、包索引网络及目标平台；离线包需匹配 Linux / Python / CPU |
+| 检查有建议 | 建议不阻止可用导出；自动调整 1–4 次，视觉异常回退本地检查 |
+
+当前没有跨进程任务队列，不启用多个 worker / 多实例。打包成功不等于目标 Linux 上 Nginx、systemd、DNS、证书链及模型服务已通过部署验收。
+
+## 12. 其他域名可选 Certbot
+
+lightsmile.ink 使用你提供的证书，无需此步骤。其他域名没有证书时可按 [Certbot 官方指引](https://certbot.eff.org/instructions?ws=nginx&os=snap) 安装，DNS 正确且 80 端口可达后申请：
+
+```bash
+# 先用相应域名构建包，临时安装包内 folio-http.conf 为 Nginx 站点。
+sudo snap install --classic certbot
+sudo /snap/bin/certbot certonly --nginx -d YOUR_DOMAIN
+sudo /snap/bin/certbot renew --dry-run
+```
+
+正式 folio.conf 的证书路径改为 `/etc/letsencrypt/live/YOUR_DOMAIN/fullchain.pem` 和 privkey.pem，nginx -t 后 reload。续期成功后通过 Certbot deploy hook reload Nginx，不引用不会自动更新的证书副本。
+
+## 本地开发
+
+开发仍可从源码运行：backend 安装 `python -m pip install -e ".[dev]"`，首次配置 backend/.env，运行 `python -m uvicorn app.main:app --host 127.0.0.1 --port 8000`；frontend 中 npm ci 后 npm run dev。Vite 代理 /api、/ws、/storage。生产使用本文发布包。
+
+## lightsmile.ink 实际部署
+
+2026-10-09 已通过 SSH 部署到 Ubuntu 22.04 / Python 3.10.12。公网入口为 [Folio](https://lightsmile.ink)，独立管理员入口为 [管理中心](https://lightsmile.ink/#/admin/login)。当前安装目录、维护命令、验收结果与证书期限见 [运行记录](docs/OPERATIONS.md)。凭据和真实 API Key 不写入文档或发布包。

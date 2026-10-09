@@ -8,12 +8,12 @@ Folio 是原 PPTMaker 项目的新品牌。公开首页介绍功能、风格、�
 
 - 注册、登录、退出与修改密码；每个账号拥有独立的演示、附件、资料、用量和额度。
 - 输入文字，点击选择或将 PDF、DOCX、Markdown、TXT 拖入工作台页面；单文件最大 10 MiB。
-- 在“创作方案”选择 1–50 页、受众、16 种演示风格、4 种编排、3 档内容密度及结构选项；可补充制作要求。
+- 在“创作方案”按会员权益选择页数（系统上限 50）、受众、16 种演示风格、4 种编排、3 档内容密度及结构选项；可补充制作要求。
 - 自动整理材料、规划大纲、并行制作、检查排版、导出可编辑 `.pptx`；逐页查看预览、正文与演讲备注，点击按钮下载；完成后不会自动下载。
 - 在工作空间搜索、排序、收藏、重命名、添加标签、归档与恢复历史演示；打开已完成演示直接预览和下载，不重新调用模型。
 - 管理服务端保存的个人资料、默认创作方案；查看管理员配置的会员权益、真实 Token 用量、缓存命中和月度输出预算。
 
-账号与会话存入后端数据库，密码以随机盐 scrypt 散列保存，会话使用 HttpOnly Cookie。演示、图片、PPTX 和实时生成均校验用户归属。前端不在 localStorage 保存账号、用量或登录令牌。注册默认 Folio Basic，会员按用户配置；未接入邮件认证、密码找回、在线支付和服务商余额查询。按本次要求不迁移原共享账号数据，新用户从独立空工作空间开始。
+账号与会话存入后端数据库，密码以随机盐 scrypt 散列保存，会话使用 HttpOnly Cookie。演示、图片、PPTX 和实时生成均校验用户归属。前端不在 localStorage 保存账号、用量或登录令牌。注册默认普通会员；管理员可分配 Plus / Pro / Studio。未接入邮件认证、自助密码找回和在线支付；管理页支持用户密码重置及 DeepSeek 官方余额查询。按本次要求不迁移原共享账号数据，新用户从独立空工作空间开始。
 
 ## 应用页面
 
@@ -55,6 +55,47 @@ Folio 是原 PPTMaker 项目的新品牌。公开首页介绍功能、风格、�
 
 模板研究与内置实现见 [模板风格参考](docs/TEMPLATE_REFERENCES.md)。当前使用可编辑的本地版式，未接入第三方 PPTX 模板导入或素材图库。
 
+**管理中心**：独立管理登录与主页，侧栏、表单和按钮沿用 Folio 现有设计。
+
+![Folio 账号管理](docs/images/admin-users.jpg)
+
+<details>
+<summary>查看管理登录、概览与手机权益设置</summary>
+
+![Folio 管理登录](docs/images/admin-login.jpg)
+
+![Folio 管理概览](docs/images/admin-overview.jpg)
+
+![Folio 手机会员设置](docs/images/admin-memberships-mobile.jpg)
+
+</details>
+
+## 管理员与会员
+
+已部署入口：[Folio](https://lightsmile.ink) · [独立管理中心](https://lightsmile.ink/#/admin/login)。服务器维护与此次部署验收见 [运行记录](docs/OPERATIONS.md)。
+
+管理员从 `/#/admin/login` 登录，使用新建的专用身份，不提升已有用户。开发时从后端工作目录初始化：
+
+```powershell
+cd backend
+python ../scripts/create_admin.py --env-file .env --email admin@lightsmile.ink --credentials-file ../storage/admin-bootstrap.txt
+```
+
+随机初始密码仅写入新建文件；已有邮箱 / 凭据文件会拒绝覆盖。登录后在“管理账号”修改密码，再删除初始凭据。生产使用安装包提供的 `folio-create-admin`，命令与权限见 [DEPLOY.md](DEPLOY.md)。
+
+管理中心包含概览、账号管理、会员权益、模型与环境、用量与额度、活动记录。支持账号搜索 / 停用 / 启用、撤销会话 / 密码重置、等级与到期 / 独立额度、方案编辑、允许的 .env 运行参数修改、模型目录与真实余额查询，以及登录 IP / 设备、使用、生成、调用与管理记录。
+
+| 默认会员 | 月度输出 Token | 最多页数 | 单份并行页数 |
+|---|---:|---:|---:|
+| 普通会员 | 50,000 | 20 | 1 |
+| Plus | 150,000 | 35 | 2 |
+| Pro | 500,000 | 50 | 3 |
+| Studio | 2,000,000 | 50 | 6 |
+
+新用户默认普通会员。等级由管理员切换，到期恢复普通权益；独立额度优先，0 为不限。实际并行不超过全局上限，后台执行全部限制。所有等级支持现有文档、风格、工作空间和导出，会员不赋予管理权限，无支付和自动续费。
+
+API Key 只写不读，配置修订冲突或正在制作时拒绝保存。供应商余额目前仅支持 [DeepSeek 官方接口](https://api-docs.deepseek.com/api/get-user-balance/)，其他接口明确显示不支持。记录不存提示词、模型正文、密码或密钥；启用前事件不补造。管理会话不能访问用户私有文件。接口详见 [管理 API](docs/ADMIN_API.md)。
+
 ## 本地启动
 
 要求：Python 3.10+、Node.js 18+。以下命令从仓库根目录开始，在两个终端中运行。
@@ -81,7 +122,7 @@ npm run dev -- --host 127.0.0.1
 
 ## 配置
 
-完整示例见 [backend/.env.example](backend/.env.example)。`.env` 按后端包的绝对位置读取，修改后重启后端。
+开发配置见 [backend/.env.example](backend/.env.example)，从后端包位置读取；发布包使用 `folio-server --env-file /etc/folio/runtime/folio.env` 加载外部配置。管理页允许的运行项保存后立即应用；离线配置修改后重启后端。
 
 | 配置 | 含义 |
 |---|---|
@@ -96,14 +137,16 @@ npm run dev -- --host 127.0.0.1
 | `FOLIO_SESSION_DAYS` | 会话有效期，默认 7 天，1–30 天 |
 | `FOLIO_COOKIE_SECURE` | 本地 HTTP 为 false，生产 HTTPS 必须 true |
 | `FOLIO_ALLOWED_ORIGINS` | 明确的前端 Origin 白名单，生产填写真实 HTTPS 域名 |
-| `FOLIO_MONTHLY_OUTPUT_LIMIT` | 每用户默认 UTC 月度输出预算，0 不限，用户级预算优先 |
+| `FOLIO_REGISTRATION_ENABLED` | 是否开放新用户注册，默认 true |
+| `FOLIO_MONTHLY_OUTPUT_LIMIT` | 仅无用户身份的离线兼容调用预算；已登录用户使用会员方案 / 账号独立额度 |
 | `FOLIO_DB` | 可选 SQLite 路径；未设置时沿用 `PPTMAKER_DB` 或 `storage/pptmaker.sqlite3` |
 | `STORAGE_PATH` | PPTX、PNG 存储目录，默认后端工作目录下的 `storage` |
 
-额度由服务端按账号管理，不能代表供应商余额。并行调用原子预留预算，返回后按实际用量结算；不足时不会发送模型请求。管理员可从仓库根目录为已注册用户配置权益与预算：
+额度由服务端按账号管理，不能代表供应商余额。并行调用原子预留预算，返回后按实际用量结算；不足时不会发送模型请求。管理员也可从后端工作目录为已注册用户配置权益与预算：
 
 ```powershell
-python scripts/manage_user.py --email author@example.com --tier plus --monthly-output-limit 100000
+cd backend
+python ../scripts/manage_user.py --env-file .env --email author@example.com --tier plus --monthly-output-limit 100000
 # 可选 --expires-at 2027-01-01T00:00:00+00:00；none 清除到期时间
 ```
 
@@ -163,6 +206,19 @@ backend/app/
 前端保留表单、导航、草稿和显示格式；业务校验、文档组装、步骤选择、生成状态、排版、文件可用性、权限、会员和用量由后端处理。添加文档不改写输入要求，前端只提交附件 ID；没有真实预览时明确展示正文摘录，不另绘一套幻灯片。生成状态、并行统计和预览时间直接使用服务端结果。
 
 项目、个人资料与用量写入 SQLite；进程重启后可以恢复历史。开始 / 继续、调整和导出任务由后端持有，页面关闭或刷新后继续，重连恢复真实快照与下载链接；同一项目重复提交复用现有任务。当前仅支持单 worker；服务重启仍会中断任务，标记可重试并保留材料与页面，用户点击后才继续。结果缓存是进程内缓存，重启会失效；月度用量不会失效。
+
+## 构建与部署
+
+在仓库根目录构建前端静态资源、后端 wheel 和部署模板，生成 ZIP / tar.gz 及 SHA256 校验文件：
+
+```powershell
+python scripts/build.py --domain lightsmile.ink
+# Windows: scripts\build.bat；Linux/macOS: bash scripts/build.sh
+```
+
+本地 `deploy/lightsmile.ink.pem` 和 `.key` 会一起打包到独立 `tls/` 目录，配置使用 `https://lightsmile.ink`。**包中包含私钥，只供自己的服务器部署；分享包时加 `--without-certificates`。**真实 `.env`、数据库和上传资料不进入包。
+
+生产服务器无需源码仓库或 Node，安装 wheel 后运行 `folio-server`，仍需 Python 3.10+。包附 Nginx HTTPS / WS 配置、systemd 单 worker 服务和安装脚本。服务器初始化、证书安装、配置、管理员初始化、升级、回滚与备份步骤见 [部署指南](DEPLOY.md)。离线会员管理使用 `folio-manage-user --env-file /etc/folio/runtime/folio.env`。
 
 ## 验证与文档
 

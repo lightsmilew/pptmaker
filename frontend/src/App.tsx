@@ -14,6 +14,7 @@ import { useWebSocket } from '@/hooks/useWebSocket';
 import { api, setSessionCsrf, type AuthSession } from '@/api/client';
 import type { PPTProjectSpec } from '@/types';
 import type { Account } from '@/types/workspace';
+import { AdminApp } from '@/components/admin/AdminApp';
 
 function readRoute(): { section: Section; id?: string } {
   const [section,id] = window.location.hash.replace(/^#\/?/, '').split('/');
@@ -65,14 +66,14 @@ function StudioApp({ initialAccount, onLogout }: { initialAccount: Account; onLo
   const pageTitle = route.section === 'project' ? `${project?.spec.topic || '展开你的想法'} — Folio` : route.section === 'workspace' ? '你的想法，都在这里 — Folio' : route.section === 'settings' ? '每个想法，都有自己的样子 — Folio' : route.section === 'account' ? '你的创作节奏 — Folio' : 'Folio — Let your ideas unfold.';
   useEffect(() => { document.title = pageTitle; }, [pageTitle]);
   return <StudioShell section={route.section} onNavigate={navigate} onNew={newPresentation} account={account} hasProject={!!project} projectTitle={project?.spec.topic} onLogout={onLogout}>
-    {route.section === 'home' && <StudioHome onSubmit={create} onExample={example} onSettings={() => navigate('settings')} isLoading={isLoading} error={error} />}
-    {route.section === 'settings' && <SettingsPage onBack={() => navigate('home')} onAccountChange={setAccount} />}
+    {route.section === 'home' && <StudioHome maxPages={account?.membership?.limits?.max_pages} onSubmit={create} onExample={example} onSettings={() => navigate('settings')} isLoading={isLoading} error={error} />}
+    {route.section === 'settings' && <SettingsPage maxPages={account?.membership?.limits?.max_pages} onBack={() => navigate('home')} onAccountChange={setAccount} />}
     {route.section === 'workspace' && <WorkspacePage onOpen={id => navigate('project',id)} onNew={newPresentation} />}
     {route.section === 'account' && <AccountPage account={account} error={accountError} onChange={setAccount} onRefresh={refreshAccount} />}
     {route.section === 'project' && (loadingProject || loadError || !project || project.id !== route.id ? <div className="empty-state" role={loadError ? 'alert' : 'status'}><p>{loadError || '正在打开演示…'}</p>{loadError && <Button variant="outline" onClick={() => navigate('workspace')}>返回工作空间</Button>}</div> : <PresentationPage key={project.id} project={project} selectedIndex={Math.min(selectedIndex,Math.max(0,(project.pages?.length || project.outline?.length || 1)-1))} onSelect={setSelectedIndex} onDownload={exportFile} onResume={resume} onRepair={() => { setError(null); generateParallel(); }} onWorkspace={() => navigate('workspace')} downloading={downloading} downloadUrl={lastDownloadUrl} error={error} scheduling={workflowPending} />)}
   </StudioShell>;
 }
-export default function App() {
+function UserApp() {
   const [session,setSession] = useState<AuthSession | null>(null);
   const [checking,setChecking] = useState(true); const [sessionError,setSessionError] = useState('');
   const [hash,setHash] = useState(window.location.hash);
@@ -123,4 +124,10 @@ export default function App() {
   if (checking) return <div className="session-loading" role="status"><img src="/folio-mark.svg" width="28" alt="" /><span>正在打开 Folio…</span></div>;
   if (session && privateRoute) return <StudioApp key={session.account.profile.account_id} initialAccount={session.account} onLogout={logout} />;
   return <>{sessionError && <div className="public-connection-error" role="alert">{sessionError}<Button variant="ghost" onClick={() => { setSessionError(''); setChecking(true); void checkSession(); }}>重新连接</Button></div>}<PublicHome signedIn={!!session} onAuthenticated={login} onEnter={() => { window.location.hash='/home'; }} /></>;
+}
+
+export default function App() {
+  const [admin,setAdmin] = useState(/^#\/admin(?:\/|$)/.test(window.location.hash));
+  useEffect(()=>{ const changed=()=>setAdmin(/^#\/admin(?:\/|$)/.test(window.location.hash)); window.addEventListener('hashchange',changed); return()=>window.removeEventListener('hashchange',changed); },[]);
+  return admin ? <AdminApp /> : <UserApp />;
 }

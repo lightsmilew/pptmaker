@@ -51,6 +51,7 @@ from ..config import settings
 from ..models.page import PageState, PageStatus, PageType
 from ..agent.review_policy import can_finalize, has_page_artifacts, repair_limit
 from ..storage.memory import memory_store, template_kb
+from ..storage.admin_repository import enforce_pages
 from ..tools.pptx_generator import PPTXGenerator
 
 
@@ -70,6 +71,9 @@ class ConnectionManager:
 
     async def start_workflow(self, project_id: str, command: str, **kwargs) -> None:
         """Keep a single process-local job alive independently of browser tabs."""
+        project = memory_store.get_project(project_id)
+        if project:
+            enforce_pages(project.get("owner_id"), max((project.get("spec") or {}).get("page_count", 8), len(project.get("pages") or []), len(project.get("outline") or [])))
         if self.workflow_running(project_id):
             from .workspace import project_view
             project = memory_store.get_project(project_id)
@@ -203,6 +207,7 @@ class WorkflowRunner:
             uploaded_files=uploaded_files or [],
         )
         project_data = state_to_project(state)
+        enforce_pages(owner_id, (project_data.get("spec") or {}).get("page_count", 8))
         project_data["owner_id"] = owner_id
         memory_store.create_project(project_id, project_data)
         return project_data
@@ -216,6 +221,7 @@ class WorkflowRunner:
             return None
         current = dict(project.get("spec") or {})
         current.update(patch or {})
+        enforce_pages(project.get("owner_id"), current.get("page_count", 8))
         project["spec"] = current
         memory_store.update_project(project_id, project)
         return project
@@ -320,6 +326,7 @@ class WorkflowRunner:
                 parsed = state["project"].spec
                 # Explicit form settings are authoritative; parsing supplies topic/notes.
                 parsed.update({k: v for k, v in spec.items() if v not in (None, "")})
+                enforce_pages(project.get("owner_id"), parsed.get("page_count", 8))
                 project["spec"] = parsed
                 project["status"] = "parsed"
                 project["current_step"] = "输入已解析"
@@ -395,6 +402,7 @@ class WorkflowRunner:
                     await self._broadcast("error", {"message": "大纲生成为空，请检查主题设置后重试"})
                     return
 
+                enforce_pages(project.get("owner_id"), len(outline))
                 project["outline"] = outline
                 # Initialize page stubs from outline
                 existing_pages = {p.get("page_id"): p for p in project.get("pages") or []}
@@ -491,6 +499,9 @@ class WorkflowRunner:
                 # Concurrency limit: keep enough parallelism for speed but don't
                 # overwhelm the LLM proxy with concurrent requests.
                 concurrency = min(max(1, int(os.getenv("PPT_CONCURRENCY", "3"))), 8, page_count)
+                if project.get("owner_id"):
+                    from ..storage.account_repository import account_repository
+                    concurrency = min(concurrency, account_repository(project["owner_id"]).membership()["limits"]["concurrency"])
                 semaphore = asyncio.Semaphore(concurrency)
                 review_semaphore = asyncio.Semaphore(concurrency)
                 # Shared only by the page tasks below. Each page owns its
@@ -1092,7 +1103,7 @@ async def websocket_handler(websocket: WebSocket, project_id: str) -> None:
     session = AuthRepository().session(token)
     try:
         check_origin(websocket)
-        if not session:
+        if not session or session["scope"] != "user" or session["role"] != "user":
             raise HTTPException(401, "请先登录")
         owned_project(project_id, session["user_id"])
     except HTTPException as exc:
@@ -1184,6 +1195,10 @@ async def _dispatch(
     if msg_type == "ping":
         await send({"type": "pong", "data": {"ts": time.time()}})
         return
+
+    if msg_type in {"run_workflow", "parse_input", "plan_outline", "generate_parallel", "render_pptx", "trigger_review"}:
+        project = memory_store.get_project(project_id) or {}
+        enforce_pages(project.get("owner_id"), max((project.get("spec") or {}).get("page_count", 8), len(project.get("pages") or []), len(project.get("outline") or [])))
 
     if msg_type == "run_workflow":
         await manager.start_workflow(project_id,"cmd_run_workflow")

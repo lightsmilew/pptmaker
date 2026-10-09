@@ -40,6 +40,10 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     css: false,
+    // Keep browser interaction tests responsive on Windows while the API runs.
+    maxWorkers: 2,
+    minWorkers: 1,
+    testTimeout: 15000,
     coverage: {
       reporter: ['text', 'html'],
       include: ['src/**/*.{ts,tsx}'],

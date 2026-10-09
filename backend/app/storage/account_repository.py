@@ -40,6 +40,11 @@ class AccountRepository:
                 if "user_id" not in {r[1] for r in db.execute(f"PRAGMA table_info({table})")}:
                     db.execute(f"ALTER TABLE {table} ADD COLUMN user_id TEXT NOT NULL DEFAULT ''")
             db.execute("CREATE INDEX IF NOT EXISTS usage_user_date ON usage_ledger(user_id,created_at)")
+            columns = {r[1] for r in db.execute("PRAGMA table_info(usage_ledger)")}
+            if "provider" not in columns:
+                db.execute("ALTER TABLE usage_ledger ADD COLUMN provider TEXT NOT NULL DEFAULT ''")
+            if "usage_reported" not in columns:
+                db.execute("ALTER TABLE usage_ledger ADD COLUMN usage_reported INTEGER")
 
     def connect(self):
         return sqlite3.connect(self.path, timeout=15)
@@ -78,6 +83,7 @@ class AccountRepository:
         return profile
 
     def membership(self):
+        from ..tools.design_catalog import STYLE_NAMES
         tier = os.getenv("FOLIO_MEMBERSHIP", "local").lower()
         tier = tier if tier in ("local", "plus") else "local"
         expires = os.getenv("FOLIO_MEMBERSHIP_EXPIRES_AT") or None
@@ -93,12 +99,15 @@ class AccountRepository:
                 active = expiry.replace(tzinfo=expiry.tzinfo or timezone.utc) > datetime.now(timezone.utc)
             except ValueError:
                 active = False
-        vip = tier == "plus" and active
-        return dict(tier=tier, name="Folio Plus" if vip else "Folio Basic" if self.user_id else "Folio Local", is_vip=vip,
+        from .admin_repository import AdminRepository
+        plan = AdminRepository(self.path).plan(tier if active else "basic")
+        vip = tier in ("plus", "pro", "studio") and active
+        return dict(tier=tier, effective_tier=plan["tier"], name=plan["name"] if self.user_id else "Folio Local", is_vip=vip,
                     status="active" if active else "expired", expires_at=expires,
                     managed_by="server_configuration" if self.user_id else "local_configuration", billing_mode="server_provider" if self.user_id else "own_api_key",
-                    features=["可编辑 PowerPoint 导出", "六种演示主题", "历史与收藏", "文档导入", "真实用量记录"],
-                    limits=dict(max_pages=50, concurrency=max(1,min(8,int(os.getenv("PPT_CONCURRENCY","3"))))))
+                    features=["可编辑 PowerPoint 导出", f"{len(STYLE_NAMES)} 种演示风格", "历史与收藏", "文档导入", "真实用量记录"],
+                    limits=dict(max_pages=plan["max_pages"] if self.user_id else 50,
+                                concurrency=min(plan["concurrency"] if self.user_id else 8, max(1,min(8,int(os.getenv("PPT_CONCURRENCY","3")))))))
 
     def usage(self):
         now = datetime.now(timezone.utc)
@@ -129,6 +138,9 @@ class AccountRepository:
                 row = db.execute("SELECT output_limit FROM users WHERE id=?", (self.user_id,)).fetchone()
             if row and row[0] is not None:
                 return max(0, int(row[0]))
+            from .admin_repository import AdminRepository
+            tier = self.membership()["effective_tier"]
+            return AdminRepository(self.path).plan(tier)["monthly_output_limit"]
         return max(0,int(os.getenv("FOLIO_MONTHLY_OUTPUT_LIMIT", "0")))
 
     def reserve_output(self, call_id, requested):
@@ -150,11 +162,12 @@ class AccountRepository:
     def record_usage(self, record):
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            db.execute("INSERT OR IGNORE INTO usage_ledger(id,created_at,project_id,role,model,input_tokens,output_tokens,cached_tokens,reasoning_tokens,success,cache_hit,duration_ms,user_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            db.execute("INSERT OR IGNORE INTO usage_ledger(id,created_at,project_id,role,model,input_tokens,output_tokens,cached_tokens,reasoning_tokens,success,cache_hit,duration_ms,user_id,provider,usage_reported) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                        (record["call_id"],record["created_at"],record.get("project_id"),record.get("role"),record.get("model"),
                         record.get("input_tokens",0) or 0,record.get("output_tokens",0) or 0,
                         record.get("cached_input_tokens",0) or 0,record.get("reasoning_tokens",0) or 0,
-                        bool(record.get("success")),bool(record.get("response_cache_hit")),record.get("duration_ms",0),self.user_id))
+                        bool(record.get("success")),bool(record.get("response_cache_hit")),record.get("duration_ms",0),self.user_id,
+                        record.get("provider", ""), record.get("usage_reported")))
             db.execute("DELETE FROM output_reservations WHERE id=? AND user_id=?", (record["call_id"],self.user_id))
 
 

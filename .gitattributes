@@ -1,0 +1,5 @@
+*.sh text eol=lf
+*.bat text eol=crlf
+deployment/**/*.conf text eol=lf
+deployment/*.service text eol=lf
+deployment/*.example text eol=lf

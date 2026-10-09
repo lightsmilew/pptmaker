@@ -10,13 +10,13 @@ function StylePreview({ style, topic }: { style: DesignStyle; topic: string }) {
     <span className="preview-kicker">FOLIO / {style.category}</span><strong>{topic || '让每一个观点，\n找到自己的位置。'}</strong><div className="preview-rule" /><span className="preview-page">01 / EXPRESSION</span><span className="preview-edge" />
   </div>;
 }
-export function DesignControls() {
+export function DesignControls({ maxPages = 50 }: { maxPages?: number }) {
   const draft = useProjectStore(s => s.draftSpec); const update = useProjectStore(s => s.setDraftSpec);
   const { catalog, error, retry } = useDesignCatalog();
   const selected = catalog?.styles.find(s => s.name === draft.style) || catalog?.styles[0];
   return <div className="direction-controls">
     <section className="direction-section" aria-labelledby="direction-basics"><div className="direction-label"><h2 id="direction-basics"><span>01</span>内容轮廓</h2><p>先决定要说多少，以及说给谁听。</p></div><div className="direction-basics">
-      <NumberInput label="演示页数" aria-label="设置演示页数" min={1} max={50} value={draft.page_count || 8} onValueChange={page_count => update({page_count})} />
+      <NumberInput label="演示页数" aria-label="设置演示页数" min={1} max={maxPages} value={draft.page_count || 8} onValueChange={page_count => update({page_count})} />
       <Select label="目标受众" value={draft.audience || '通用'} onValueChange={audience => update({audience})} options={audiences.map(a => ({value:a,label:a === '通用' ? '通用受众' : a === '本科学生' ? '大学生' : a}))} />
       <Select label="内容密度" value={draft.content_density || 'balanced'} onValueChange={content_density => update({content_density:content_density as NonNullable<typeof draft.content_density>})} options={(catalog?.densities || [{id:'balanced',name:'适中'}]).map(d => ({value:d.id,label:d.name}))} />
     </div><div className="direction-checks">{([{key:'needs_cover',name:'封面'},{key:'needs_toc',name:'目录'},{key:'needs_summary',name:'总结'},{key:'needs_chart',name:'图表'}] as const).map(item => <label key={item.key}><input type="checkbox" checked={!!draft[item.key]} onChange={e => update({[item.key]:e.target.checked})} />{item.name}</label>)}<span>图表仅使用材料中已有的数据</span></div></section>

@@ -15,16 +15,17 @@ interface Props {
   isLoading: boolean;
   error: string | null;
   onSettings: () => void;
+  maxPages?: number;
 }
 
-export function StudioHome({ onSubmit, onExample, onSettings, isLoading, error }: Props) {
+export function StudioHome({ onSubmit, onExample, onSettings, isLoading, error, maxPages }: Props) {
   const draft = useProjectStore(s => s.draftSpec);
   const setDraft = useProjectStore(s => s.setDraftSpec);
   const selectedStyle = draft.style || '商务简约';
   return <>
             <div className="studio-heading"><p className="eyebrow"><span />A SPACE FOR YOUR IDEAS</p><h1>好内容，值得好好呈现。</h1><p>从一段想法、一份文档开始，做一份清晰、耐看的演示文稿。</p></div>
             <div className="studio-workbench">
-              <section className="brief-section" aria-labelledby="brief-heading"><div className="section-heading"><h2 id="brief-heading"><span className="section-index">01</span>写下你的内容</h2><span>想法的起点</span></div><InputPanel mode="content" onSubmit={onSubmit} isLoading={isLoading} />{error && <p role="alert" className="studio-error">{error}</p>}</section>
+              <section className="brief-section" aria-labelledby="brief-heading"><div className="section-heading"><h2 id="brief-heading"><span className="section-index">01</span>写下你的内容</h2><span>想法的起点</span></div><InputPanel mode="content" maxPages={maxPages} onSubmit={onSubmit} isLoading={isLoading} />{error && <p role="alert" className="studio-error">{error}</p>}</section>
               <aside className="workbench-aside"><div className="aside-label">从内容到演示</div><h3>每一页，<br />都有自己的重点。</h3><p>整理结构，提炼要点。<br />让多样的版式，围绕内容展开。</p><ol><li><span>1</span>写下想法或上传文档</li><li><span>2</span>选择适合内容的风格</li><li><span>3</span>预览并下载 PowerPoint</li></ol><div className="aside-footer"><FileText size={16} /><span>可编辑的 .pptx 文件</span><ArrowUpRight size={16} /></div></aside>
             </div>
             <section className="theme-section" aria-labelledby="theme-heading"><div className="section-heading"><h2 id="theme-heading"><span className="section-index">02</span>选一种表达方式</h2><button className="text-link" onClick={onSettings}>创作方案 · 16 种风格 <ArrowUpRight size={14} /></button></div><div className="theme-grid">{themes.map((theme, i) => <button key={theme.name} disabled={isLoading} aria-pressed={selectedStyle === theme.name} className={`theme-option ${selectedStyle === theme.name ? 'selected' : ''}`} onClick={() => setDraft({ style: theme.name })}>

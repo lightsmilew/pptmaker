@@ -158,6 +158,8 @@ async def upload_and_parse(file: UploadFile = File(...), user_id: str = Depends(
     saved = directory / ("original" + os.path.splitext(filename)[1].lower())
     saved.write_bytes(content)
     AuthRepository().save_upload(user_id, filename, str(saved), text, len(content), upload_id)
+    from ..storage.admin_repository import AdminRepository
+    AdminRepository().record("usage", user_id, "document.uploaded", upload_id, {"size": len(content)})
     return {
         "upload_id": upload_id,
         "filename": filename,

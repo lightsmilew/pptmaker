@@ -306,5 +306,5 @@ def get_llm_client(role: str = "default") -> LLMClient:
     config = get_llm_config().model_copy(deep=True)
     cfg = config.get_active_config()
     prefix = config.provider.upper() + "_" + role.upper()
-    cfg.model_name = os.getenv(prefix + "_MODEL", cfg.model_name)
+    cfg.model_name = os.getenv(prefix + "_MODEL") or cfg.model_name
     return _configured_client(config.model_dump_json(), role)

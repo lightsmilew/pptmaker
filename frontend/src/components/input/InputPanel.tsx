@@ -13,6 +13,7 @@ interface InputPanelProps {
   onSubmit: (input: string, spec: PPTProjectSpec) => void;
   isLoading?: boolean;
   mode: 'content' | 'settings';
+  maxPages?: number;
 }
 
 interface UploadedFile {
@@ -21,7 +22,7 @@ interface UploadedFile {
   size: number;
 }
 
-export function InputPanel({ onSubmit, isLoading, mode }: InputPanelProps) {
+export function InputPanel({ onSubmit, isLoading, mode, maxPages = 50 }: InputPanelProps) {
   const draftSpec = useProjectStore((s) => s.draftSpec);
   const setDraftSpec = useProjectStore((s) => s.setDraftSpec);
   const input = useProjectStore((s) => s.draftInput);
@@ -171,7 +172,7 @@ export function InputPanel({ onSubmit, isLoading, mode }: InputPanelProps) {
           )}
 
           <div className="brief-actions">
-            <div className="brief-options"><span className="brief-count-label">页数</span><NumberInput compact aria-label="演示页数" min={1} max={50} value={effectiveSpec.page_count || 8} onValueChange={page_count => updateSpec({page_count})} /><span className="brief-style-name">{effectiveSpec.style}</span></div>
+            <div className="brief-options"><span className="brief-count-label">页数</span><NumberInput compact aria-label="演示页数" min={1} max={maxPages} value={effectiveSpec.page_count || 8} onValueChange={page_count => updateSpec({page_count})} /><span className="brief-style-name">{effectiveSpec.style}</span></div>
             <Button onClick={handleSubmit} disabled={(!input.trim() && !uploadedFiles.length) || isLoading || isUploading} isLoading={isLoading}>创建演示 <ArrowRight size={16} /></Button>
           </div>
         </div>

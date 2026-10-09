@@ -2,6 +2,16 @@
 
 更新：2026-10-09。开发 API 位于 `http://127.0.0.1:8000`，前端同源访问。账号、项目、附件、用量和额度在服务端按用户隔离。业务 REST 和文件未登录返回 401，其他用户的项目返回 404。OpenAPI `/docs` 为字段约束来源。
 
+## 发布环境与同源代理
+
+生产通过已安装的 `folio-server --env-file /etc/folio/runtime/folio.env` 启动单 worker。默认域名为 lightsmile.ink；Nginx 将 /api/、/ws/、/storage/ 和 /health 原路径代理至 127.0.0.1:8000，传递 Cookie / Origin 和 WebSocket Upgrade。前端使用同源 URL，不能通过 VITE_BACKEND_HOST 改变生产连接地址。
+
+公开站点不直接暴露数据库 / 文件目录。/storage 仍执行后端认证；部署模板默认不公开 /docs 和 /openapi.json，可通过服务器本机查看。HTTP 重定向 HTTPS，Cookie Secure 与 FOLIO_ALLOWED_ORIGINS=https://lightsmile.ink 对齐。安装包和代理步骤见 [DEPLOY.md](../DEPLOY.md)，REST / WebSocket 消息格式不因打包而改变。
+
+管理 API 位于 `/api/v1/admin`，使用独立管理员 Cookie 与会话。`folio-create-admin --env-file /etc/folio/runtime/folio.env` 创建新管理账号；`folio-manage-user` 保留离线调整用户权益，资料 PATCH 不能授予权限。
+
+完整管理契约、字段与限制见 [ADMIN_API.md](ADMIN_API.md)，包含认证、账号、四级会员、.env、模型目录、供应商余额、Token 汇总与分页活动记录。
+
 ## 认证与会话
 
 | 方法 | 路径 | 请求与响应 |
@@ -83,6 +93,7 @@
 
 - `profile`：`account_id`、`display_name`、`email`、`company`、`occupation`、`bio`、`timezone`、`created_at`、`updated_at`（保存后）和 `preferences`。
 - `membership`：`tier`、`name`、`is_vip`、`status`、`expires_at`、`managed_by`、`billing_mode`、`features`、`limits`。
+- `features` 中的风格数量来自当前后端风格目录，不单独维护过期数量。
 - `usage`：持久化月度统计，字段见下文。
 - `account`：`mode=server`、`status=active`、`login_email`、`email_verified=false`、`provider_host`、`model`、`provider_connected`、`authentication=server_session`。只返回模型主机名，不返回密钥或带凭据的 URL；`workspace.mode` 同样为 server。
 
@@ -96,7 +107,7 @@
 
 禁止通过资料接口更改 `account_id`、`created_at`、VIP、会员额度等；未知字段返回 422。返回更新后的完整 account view。
 
-`GET /api/v1/account/membership` 返回当前用户会员：注册默认 Basic，管理员用 `scripts/manage_user.py` 单独配置 Basic / Plus 和到期时间，保存于用户表。`managed_by=server_configuration`，`billing_mode=server_provider`。到期 Plus 不再有 VIP 标记，两档目前都提供基础创作权益；没有购买接口。
+`GET /api/v1/account/membership` 返回当前用户会员：注册默认普通会员 basic，支持 plus / pro / studio，管理员通过管理页设置等级与到期。返回新增 `effective_tier`；到期后原 `tier` 保留、`status=expired`，实际 name / limits / 方案额度恢复 basic。默认页数上限 20 / 35 / 50 / 50，单份并行 1 / 2 / 3 / 6（同时受全局上限约束）。`managed_by=server_configuration`，`billing_mode=server_provider`；无购买接口。账号视图的 `account.role` 为 user 或 admin，不由资料接口修改。
 
 `GET /api/v1/account/usage` 返回：
 
@@ -112,7 +123,7 @@
 
 `daily` 条目含 `date`、`output_tokens`、`calls`，只列有记录的 UTC 日期。供应商输入缓存比例为 cached/input，没有输入时为 null；进程内响应缓存命中单独计数。调用数包含失败与结果缓存命中，成功数包括成功复用。账本从启用功能后累计，不回填旧进程的记录。
 
-`FOLIO_MONTHLY_OUTPUT_LIMIT` 为每个用户默认服务端预算，0 不限；用户级 `output_limit` 优先。账本、预留、进程内结果缓存均按用户隔离；生成线程继承项目归属。请求前原子预留完整预算，返回后按实际输出结算；不足不调用 SDK。该额度不是服务商实际余额。
+用户独立 output_limit 优先，否则使用有效会员方案的 monthly_output_limit（默认 50,000 / 150,000 / 500,000 / 2,000,000），0 不限；FOLIO_MONTHLY_OUTPUT_LIMIT 仅用于无用户身份的离线兼容调用。账本、预留、进程内结果缓存按用户隔离，生成线程继承归属。请求前原子预留完整预算，返回后按实际输出结算，不足不调用 SDK。该额度不是服务商余额。REST 创建 / 默认页数保存及 WS 设置 / 制作均校验会员页数，超出返回 403 或 error 事件。
 
 ### 诊断与文件
 

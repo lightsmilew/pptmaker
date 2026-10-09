@@ -15,10 +15,18 @@ class MemoryStore:
         self._projects: Dict[str, Dict[str, Any]] = {}
         self._repository = ProjectRepository()
         self._projects.update(self._repository.load_all())
+        self._recorded_status = {pid: item.get("status") for pid, item in self._projects.items()}
 
     def _persist(self, project_id: str):
         item = self._projects[project_id]
         self._repository.save(project_id, item)
+        previous = self._recorded_status.get(project_id)
+        status = item.get("status")
+        if item.get("owner_id") and (project_id not in self._recorded_status or status != previous):
+            from .admin_repository import AdminRepository
+            AdminRepository(self._repository.path).record("generation", item["owner_id"], "generation." + str(status or "created"),
+                project_id, {"previous_status": previous, "status": status, "pages": len(item.get("pages") or [])})
+        self._recorded_status[project_id] = status
 
     def create_project(self, project_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new project."""
@@ -45,6 +53,11 @@ class MemoryStore:
     def delete_project(self, project_id: str) -> bool:
         """Delete a project."""
         if project_id in self._projects:
+            item = self._projects[project_id]
+            if item.get("owner_id"):
+                from .admin_repository import AdminRepository
+                AdminRepository(self._repository.path).record("usage", item["owner_id"], "project.deleted", project_id)
+            self._recorded_status.pop(project_id, None)
             del self._projects[project_id]
             self._repository.delete(project_id)
             return True

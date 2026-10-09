@@ -26,7 +26,7 @@ def check_origin(connection):
 
 async def require_session(request: Request):
     session = AuthRepository().session(request.cookies.get(SESSION_COOKIE))
-    if not session:
+    if not session or session["scope"] != "user" or session["role"] != "user":
         raise HTTPException(401, "请先登录 Folio")
     if request.method not in ("GET", "HEAD", "OPTIONS"):
         check_origin(request)
@@ -94,12 +94,17 @@ def session_response(uid, response):
 @router.post("/register", status_code=201)
 async def register(data: Registration, request: Request, response: Response):
     protect_auth(request, data.email)
+    if os.getenv("FOLIO_REGISTRATION_ENABLED", "true").lower() != "true":
+        raise HTTPException(403, "注册暂未开放，请联系管理员")
     try:
         # CPU-bound password derivation stays off the async request loop.
         import asyncio
         uid = await asyncio.to_thread(AuthRepository().register, data.email, data.password, data.display_name)
     except sqlite3.IntegrityError:
         raise HTTPException(409, "此邮箱已注册，请登录")
+    from ..storage.admin_repository import AdminRepository
+    AdminRepository().record("usage", uid, "account.registered", uid)
+    AdminRepository().login(request, data.email, "user", uid)
     return session_response(uid, response)
 
 
@@ -108,6 +113,8 @@ async def login(data: Credentials, request: Request, response: Response):
     import asyncio
     protect_auth(request, data.email)
     uid = await asyncio.to_thread(AuthRepository().authenticate, data.email, data.password)
+    from ..storage.admin_repository import AdminRepository
+    AdminRepository().login(request, data.email, "user", uid)
     if not uid:
         raise HTTPException(401, "邮箱或密码不正确")
     return session_response(uid, response)

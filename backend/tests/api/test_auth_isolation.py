@@ -132,7 +132,9 @@ def test_references_are_stored_on_server_and_owned(users,tmp_path):
 def test_usage_quotas_and_memberships_are_independent(users,monkeypatch):
     a,b=users
     ids=[c.get("/api/v1/account").json()["profile"]["account_id"] for c in users]
-    monkeypatch.setenv("FOLIO_MONTHLY_OUTPUT_LIMIT","100")
+    from app.storage.admin_repository import AdminRepository
+    with AdminRepository().connect() as db:
+        db.execute("UPDATE membership_plans SET monthly_output_limit=100 WHERE tier='basic'")
     ar,br=[AccountRepository(AuthRepository().path,uid) for uid in ids]
     ar.reserve_output("a",80); br.reserve_output("b",80)
     ar.record_usage(dict(call_id="a",created_at=datetime.now(timezone.utc).isoformat(),input_tokens=100,output_tokens=30,success=True))
@@ -200,7 +202,9 @@ def test_ws_cannot_change_server_paths_or_bypass_page_limit(users):
 
 
 def test_concurrent_budget_reservations_are_per_user(users,monkeypatch):
-    monkeypatch.setenv("FOLIO_MONTHLY_OUTPUT_LIMIT","100")
+    from app.storage.admin_repository import AdminRepository
+    with AdminRepository().connect() as db:
+        db.execute("UPDATE membership_plans SET monthly_output_limit=100 WHERE tier='basic'")
     ids=[c.get("/api/v1/account").json()["profile"]["account_id"] for c in users]
     repos=[AccountRepository(AuthRepository().path,uid) for uid in ids]
     def reserve(pair):

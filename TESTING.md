@@ -18,6 +18,11 @@ backend 的 pytest 启动时为 `FOLIO_DB` 和兼容 `PPTMAKER_DB` 指定唯一�
 
 当前回归覆盖：
 
+- 独立管理员身份 / Cookie / scope，普通与管理入口互相拒绝，CSRF / Origin 及公开提权保护。
+- 四级会员默认 / 升级 / 到期 / 方案编辑，REST / WS 页数限制，独立额度与撤销会话。
+- .env 允许字段、密钥只写不读、原子保存、修订冲突、运行中拒绝修改与注册开关。
+- 持久登录 / 使用 / 制作 / Token 记录，供应商余额真实响应或明确不支持，不泄漏凭据和正文。
+
 - 内容结构与 JSON 合约、模型配置、Parser / Planner / Writer、受控修订与工作流编译。
 - 共享 slide scene 的换行、几何、深色主题、PNG 与 PPTX 内容，以及可编辑图表和表格。
 - WebSocket 命令顺序、状态广播、完整失败表达与有效导出。
@@ -113,4 +118,34 @@ README 截图位于可提交的 `docs/images/`，均为独立验收账号的真�
 
 已直接查看四张真实 PNG：cover / cards_grid / timeline / stacked_rows，未见文字裁切或重叠；PPTX 对象验证四页存在。这里只验证共享预览及可编辑对象，没有使用 Office 逐页渲染，也没有以本地几何 100 分宣称审美或事实质量。记录和产物位于 `storage/design_samples/folio-server-workflow-live-verification.json`、`folio-server-workflow-live.pptx`、`folio-server-workflow-page-*.png`；记录不含凭据。
 
-本轮同时尝试浏览器验收工具与 computer-use 的 Windows `@oai/sky` 入口，二者在执行初始化代码前均报告 `trusted Node process exited unexpectedly; kernel reset, rerun your request`；分别重置后仍失败。因而网页桌面 / 手机的真实视觉和原生点击验收仍未完成，未用静态样张或 DOM 单元测试冒充浏览器截图；需要恢复工具运行时后补验。上面的真实生成验证通过 HTTP / WebSocket 完成。
+早期浏览器工具与 computer-use 的 Windows `@oai/sky` 初始化曾失败；后续应用重启恢复了工具。桌面 / 手机交互已在发布与管理中心验收中补齐，结果和实际截图见下文。此处的生成验证通过 HTTP / WebSocket 完成。
+
+## 发布包与域名部署验收（2026-10-09）
+
+新增构建与已安装 CLI 测试后，完整后端 **374 项**通过，前端生产构建成功。发布验收发现会员说明仍显示六种主题，改为跟随后端目录；调整后账号、CLI 与构建相关 **30 项**复验通过。最终包为 `folio-0.1.0-r3`，包含 lightsmile.ink 证书与私钥，仅用于私有部署，不进入 Git 或公开静态目录。
+
+在独立 Ubuntu 24.04 / Python 3.12.3 venv 中安装应用 wheel 与运行依赖，pip check 通过；从源码目录外运行 folio-server，配置、数据库与文件使用独立测试路径。验证了真实 Nginx 1.24.0 的配置和证书加载、HTTP 301、HTTPS /health（保留可信链与域名校验）、注册 / 登录、两用户的项目 / 下载隔离、CSRF、WebSocket 101、已安装会员管理命令、Agent 图编译、PNG / PPTX 绘制及下载。最终 wheel 更新后再次验证，并确认重启保留测试历史与额度。没有调用模型或改动真实账号凭据。
+
+浏览器入口已恢复，通过打包静态资源和 Nginx 同源访问，实际操作登录、工作空间、个人中心及 390px 下的导航 / 排序菜单；确认无横向溢出。桌面截图与记录位于 `storage/release-qa/`。移动视口截图存在工具缩放问题，因此此次手机检查基于实际交互、DOM 和可访问性内容，不宣称完成手机截图的视觉复核。
+
+详细记录为 `storage/release-qa/report.md` 与 `smoke-report.json`。这是本机 Linux 验收，未部署公网服务器或验证公网 DNS；systemd 单元只做语法与路径检查。正式环境仍需按 DEPLOY.md 配置真实模型并验收制作流程。
+
+## 独立管理中心验收（2026-10-09）
+
+完整后端 **383 项**、前端 **104 项**通过，生产构建成功。后端最后调整后的管理、账号隔离、发布 CLI 与构建相关 **34 项**复验通过。新增覆盖独立管理员账号和 Cookie、普通账号拒绝管理入口、CSRF / Origin、防止资料修改提权、会员额度 / 页数 / 并行限制与到期回退、账号停用及会话撤销、密码重置和管理员密码轮换、环境配置脱敏 / 白名单 / 修订冲突 / 生成期间禁止修改，以及真实用量和活动记录。前端回归覆盖专用登录及返回用户首页，未修改现有用户密码。
+
+浏览器在独立数据库与端口实际检查 1440px 桌面、390px 手机的管理登录、概览、账号编辑、会员权益、环境设置和活动记录；升级验收用户为 Plus 后，普通个人中心显示 150,000 输出 Tokens、35 页上限与 2 页并行，创作方案的数字控件同步限制到 35 页。验证了手机导航与表单，页面没有横向溢出；表格在自身容器内滚动。环境修改、会员调整和登录记录均来自实际后端操作。真实截图已加入 README：`docs/images/admin-login.jpg`、`admin-overview.jpg`、`admin-users.jpg`、`admin-memberships-mobile.jpg`。
+
+按用户要求新建默认开发库专用管理员，未提升已有账号。用独立 HTTP 会话验证开发服务全部管理查询接口；DeepSeek 官方真实余额查询成功，模型目录返回 2 个模型。该记录位于 `storage/admin-qa/live-admin-report.json`，不含密码、密钥或余额金额。本轮没有调用模型生成内容。Browser 与 Computer Use 初始化已恢复；原生 Computer Use 未发现可操作的 Chrome / Edge 窗口，界面验收通过应用内浏览器完成，不声称进行了原生窗口点击。
+
+最终私有发布包为 `folio-0.1.0-r6-admin`，包含用户授权打包的 lightsmile.ink 证书和私钥。在 Ubuntu 24.04 / Python 3.12.3 的独立 venv 中重新安装该 wheel，`pip check` 通过；从源码目录外运行 `folio-server`，验证 `folio-create-admin` 的独立新账号和 0600 凭据文件、管理与用户登录隔离、新用户普通权益、管理员升级后扩大页数、原子保存环境配置、登录 / 生成记录和退出撤销。测试使用独立数据库、配置、文件目录，无模型调用。已安装版本报告位于本机 WSL 的 `folio-release-qa-20261009-r2/admin-31e808ee/report.json`。此前 r3 的 Nginx / HTTPS / WebSocket 验收见上一节；本轮未部署公网服务器。
+
+## SSH 公网部署验收（2026-10-09）
+
+已部署到用户指定的 ip 地址，Ubuntu 22.04 / Python 3.10.12 / Nginx 1.18.0，网站 https://lightsmile.ink。使用发布 wheel、静态前端、独立服务用户和 systemd；不是源码或 Vite 启动。生产 `folio.env`、数据库和产物使用独立绝对路径，8000 仅监听本机，服务开机启动。初始化新管理员 `admin@lightsmile.ink`，密码按用户指定值设置，不提升其他身份。登录表单及管理 API 接受已有短初始密码，注册和密码修改仍要求 10–128 字；相关后端 **23 项**、前端 **2 项**回归通过。构建边界与文档打包 **7 项**通过，生产构建成功。
+
+公网 HTTP 301、HTTPS 可信链 / 域名、静态首页、管理员真实登录、Secure / HttpOnly / SameSite=Strict Cookie、管理查询、密钥脱敏、DeepSeek 真实模型目录与余额查询、未登录私有资源保护及退出撤销均通过。生产数据验收只读，不注册测试用户或修改现有用户密码。详细结果：`storage/deploy-qa/production-report.json`。
+
+真实四页生成使用同一已安装后端和 Nginx 规则，测试服务 / SQLite / 配置 / 产物完全独立；临时 HTTPS 8443 与后端 18001 仅监听回环地址。验收进程只将测试域名解析到回环，不修改系统 DNS，不关闭证书验证。四页 **9.82 秒、5 次调用、2644 输入 / 669 输出 Tokens、896 缓存输入 Tokens**；参考文档上传 / 去重、WSS、断线继续、下载、另一账号 404、重启后会话 / 历史 / 用量保留及重复提交不新增调用均通过。已查看四张真实 PNG，未见明显裁切或重叠，PPTX 可编辑对象为四页；未使用 Office 渲染或以几何分数评价审美。报告和产物：`storage/deploy-qa/qa-live-report.json`、`folio-server-workflow-live.pptx`、`folio-server-workflow-page-*.png`。
+
+公开首页与管理入口已在真实公网页面验收，1440px 桌面和 390px 手机导航正常，页面没有横向溢出。手机检查发现活动表格把操作名称挤成竖排，最终 `folio-0.1.0-r8-deploy` 将表格限制在自身容器横向滚动。实际截图：`docs/images/production-admin-login.jpg`、`production-admin-mobile.jpg`（只保留页面上部，避免包含普通用户资料）。临时验收服务和 Nginx 配置已清理，正式站点的数据未混入测试内容。部署前备份、实际维护路径及证书期限见 [运行记录](docs/OPERATIONS.md)。

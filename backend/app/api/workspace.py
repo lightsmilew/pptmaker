@@ -102,6 +102,8 @@ async def update_project_metadata(project_id: str, patch: MetadataPatch, user_id
         project.setdefault("spec",{})["topic"] = title
     project.setdefault("metadata",{}).update(changes)
     memory_store.update_project(project_id,project)
+    from ..storage.admin_repository import AdminRepository
+    AdminRepository().record("usage", user_id, "project.organized", project_id, {"fields": list(patch.model_fields_set)})
     return project_summary(project)
 
 
@@ -156,7 +158,7 @@ def account_view(user_id):
     config = get_llm_config()
     provider = config.get_active_config()
     return dict(profile=repository.profile(),membership=repository.membership(),usage=repository.usage(),
-                account=dict(mode="server",status=user["status"],email_verified=False,login_email=user["email"],
+                account=dict(mode="server",status=user["status"],role=user["role"],email_verified=False,login_email=user["email"],
                              provider_host=urlparse(provider.base_url).hostname, model=provider.model_name,
                              provider_connected=config.is_configured(),authentication="server_session"))
 
@@ -168,7 +170,12 @@ async def get_account(user_id: str = Depends(require_user)):
 
 @router.patch("/account/profile")
 async def update_profile(patch: ProfilePatch, user_id: str = Depends(require_user)):
+    from ..storage.admin_repository import enforce_pages
+    if patch.preferences and patch.preferences.page_count is not None:
+        enforce_pages(user_id, patch.preferences.page_count)
     account_repository(user_id).update_profile(patch.model_dump(exclude_none=True))
+    from ..storage.admin_repository import AdminRepository
+    AdminRepository().record("usage", user_id, "profile.updated", user_id, {"fields": list(patch.model_fields_set)})
     return account_view(user_id)
 
 

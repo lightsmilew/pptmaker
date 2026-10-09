@@ -44,6 +44,8 @@ def test_membership_is_backend_configured_and_expiry_enforced(client, monkeypatc
         db.execute("UPDATE users SET membership=? WHERE id=?", (json.dumps({"tier":"plus","expires_at":"2000-01-01T00:00:00Z"}),uid))
     data = client.get("/api/v1/account/membership").json()
     assert data["status"] == "expired" and not data["is_vip"]
+    styles = client.get("/api/v1/design/catalog").json()["styles"]
+    assert f"{len(styles)} 种演示风格" in data["features"]
 
 def test_history_search_favorite_archive_restore_and_snapshot(client):
     a = client.post("/api/v1/projects",json={"spec":{"topic":"研究报告", "page_count":4},"user_input":"原始资料"}).json()
