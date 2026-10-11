@@ -1,0 +1,11 @@
+.folio-button { line-height:1.5; flex-shrink:0; }
+.folio-button-secondary { background:var(--folio-sage); color:var(--folio-green); border:1px solid #d4ddce; }
+.folio-button-outline { background:#f3f5ee; color:var(--folio-green); border:1px solid #cbd5c6; }
+.folio-button-ghost { background:transparent; color:#56694f; }
+.folio-button-secondary:hover:not(:disabled),.folio-button-outline:hover:not(:disabled) { background:#e3e9dc; border-color:#99ad91; }
+.folio-button-ghost:hover:not(:disabled) { background:var(--folio-sage); color:var(--folio-green); }
+.folio-button:active:not(:disabled) { filter:brightness(.96); }
+.studio-shell .icon-button { background:var(--folio-sage); color:#56694f; border:1px solid var(--folio-border); }
+.studio-shell .collection-toolbar>.icon-button { background:var(--folio-sage); }
+.studio-shell .icon-button:hover { background:#e3e9dc; border-color:#99ad91; color:var(--folio-green); }
+@media(max-width:650px) { .folio-button { min-height:44px; } .studio-shell .icon-button { width:44px; height:44px; } }

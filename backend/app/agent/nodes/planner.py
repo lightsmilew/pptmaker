@@ -81,6 +81,20 @@ PLANNER_SYSTEM = """你是严格的 JSON API。你的回复必须满足以下契
 输出前先在内部校验 JSON，校验失败时重新生成；不要输出校验过程。"""
 
 
+def planning_system(spec):
+    if not spec.get('auto_images', False):
+        return PLANNER_SYSTEM
+    from ...tools.photo_library import planner_catalog
+    return PLANNER_SYSTEM.replace('suggest_layout。', 'suggest_layout、可选的 image_id。') + '''
+## 自动配图
+可在适合的封面、内容、结论或致谢页增加 image_id（下面图库中的精确 ID）；无关时省略。
+按本页要表达的主题与图片实际描绘的对象匹配，不要仅凭分类选图，不要假定图片就是用户提及的真实地点、人物或产品。
+全篇最多一半页面配图（奇数向上取整），同一张图只用一次。密集内容、目录、图表、表格、对比和流程页不要配图。
+图库是主题示意素材；无需输出来源、图片说明、提示词或图片 URL。
+配图和制作格式要求属于版式元数据，不要把“配图说明”“真实办公场景配图”等制作指令写成 key_points 或正文论点。
+''' + planner_catalog()
+
+
 def planner_node(state: AgentState) -> AgentState:
     """
     Generate PPT outline.
@@ -140,7 +154,7 @@ def planner_node(state: AgentState) -> AgentState:
                 prompt + "\n\n上一轮输出未通过本地格式校验：" + last_error +
                 "。请重新输出完整紧凑JSON数组，不要解释。"
             )
-            response = llm.generate(prompt=retry_prompt, system=PLANNER_SYSTEM, max_tokens=max(2200, page_count * 240))
+            response = llm.generate(prompt=retry_prompt, system=planning_system(spec), max_tokens=max(2200, page_count * 250))
             try:
                 json_text = extract_json_from_text(response)
                 outline_data = json.loads(json_text)
@@ -172,6 +186,8 @@ def planner_node(state: AgentState) -> AgentState:
             if not isinstance(item["key_points"], list) or not all(isinstance(x, str) for x in item["key_points"]):
                 raise ValueError(f"第 {index} 页 key_points 必须是字符串数组")
 
+        from ...tools.photo_library import assign_images
+        assign_images(outline_data, spec.get('auto_images', False))
         # Update state
         state["outline"] = outline_data
 
@@ -193,6 +209,7 @@ def planner_node(state: AgentState) -> AgentState:
                     subtitle=page_info.get("subtitle", ""),
                     key_points=page_info.get("key_points", []),
                     layout_type=page_info.get("suggest_layout", "标题正文"),
+                    image_id=page_info.get("image_id"),
                 )
 
         # Set first page as current
@@ -262,7 +279,7 @@ def generate_outline(
     )
 
     llm = get_llm_client("planner")
-    response = llm.generate(prompt=prompt, system=PLANNER_SYSTEM, max_tokens=max(2200, page_count * 240))
+    response = llm.generate(prompt=prompt, system=planning_system(spec), max_tokens=max(2200, page_count * 250))
 
     json_text = extract_json_from_text(response)
     outline_data = json.loads(json_text)
@@ -278,4 +295,5 @@ def generate_outline(
         item.setdefault("subtitle", "")
         item.setdefault("page_purpose", "")
 
-    return outline_data
+    from ...tools.photo_library import assign_images
+    return assign_images(outline_data, spec.get('auto_images', False))

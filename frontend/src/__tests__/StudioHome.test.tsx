@@ -9,7 +9,7 @@ import { designFixture } from '@/test/designFixture';
 import { downloadFile } from '@/components/layout/pageUtils';
 vi.mock('@/components/layout/pageUtils',async importOriginal => ({ ...await importOriginal<typeof import('@/components/layout/pageUtils')>(),downloadFile:vi.fn() }));
 vi.mock('@/hooks/useWebSocket',() => ({ useWebSocket:vi.fn() }));
-vi.mock('@/api/client',() => ({ setSessionCsrf:vi.fn(), api:{ getDesignCatalog:vi.fn(),getSession:vi.fn(),login:vi.fn(),register:vi.fn(),logout:vi.fn(),getAccount:vi.fn(),updateProfile:vi.fn(),getProject:vi.fn(),createProject:vi.fn(),getWorkspace:vi.fn(),listProjects:vi.fn(),updateMetadata:vi.fn() } }));
+vi.mock('@/api/client',() => ({ setSessionCsrf:vi.fn(), api:{ getAnnouncements:vi.fn().mockResolvedValue({items:[],day:"2026-10-10"}),getDesignCatalog:vi.fn(),getSession:vi.fn(),login:vi.fn(),register:vi.fn(),logout:vi.fn(),getAccount:vi.fn(),updateProfile:vi.fn(),getProject:vi.fn(),createProject:vi.fn(),getWorkspace:vi.fn(),listProjects:vi.fn(),updateMetadata:vi.fn() } }));
 const account: Account = {
  profile:{ account_id:'local_test',display_name:'Folio 创作者',email:'',company:'',occupation:'',bio:'',timezone:'Asia/Shanghai',created_at:'2026-10-01T00:00:00Z',preferences:{ style:'商务简约',page_count:8,language:'zh-CN' } },
  membership:{ tier:'local',name:'Folio Local',is_vip:false,status:'active',expires_at:null,managed_by:'local_configuration',billing_mode:'own_api_key',features:['可编辑 PowerPoint 导出'],limits:{ max_pages:50,concurrency:3 } },
@@ -101,7 +101,7 @@ describe('Folio navigation and persistent account',() => {
   await act(() => userEvent.click(screen.getByRole('combobox',{name:'内容密度'})));
   await act(() => userEvent.keyboard('{ArrowDown}{Enter}'));
   await waitFor(() => expect(screen.queryByRole('listbox')).not.toBeInTheDocument());
-  expect(screen.getByRole('group',{name:'演示风格'}).querySelectorAll('button')).toHaveLength(16);
+  expect(screen.getByRole('group',{name:'演示风格'}).querySelectorAll('button')).toHaveLength(17);
   fireEvent.click(screen.getByRole('button',{name:'设为默认方案'}));
   await waitFor(() => expect(api.updateProfile).toHaveBeenCalledWith({preferences:expect.objectContaining({style:'复古印刷',layout_mode:'structured',content_density:'compact'})}));
  });
@@ -125,5 +125,15 @@ describe('Folio navigation and persistent account',() => {
   expect(useProjectStore.getState().project?.status).toBe('completed');
   expect(useProjectStore.getState().workflowPending).toBe(true);
   expect(downloadFile).not.toHaveBeenCalled();
+ });
+ it('restores the backend automatic image preference without replacing an explicit false',async () => {
+  vi.mocked(api.getAccount).mockResolvedValue({...account,profile:{...account.profile,preferences:{...account.profile.preferences,auto_images:false}}});
+  render(<App />); await screen.findByText('Folio 创作者');
+  fireEvent.click(screen.getByRole('button',{name:'创作方案'}));
+  await waitFor(()=>expect(screen.getByRole('checkbox',{name:'自动配图'})).not.toBeChecked());
+  fireEvent.click(screen.getByRole('checkbox',{name:'自动配图'}));
+  vi.mocked(api.updateProfile).mockResolvedValue(account);
+  fireEvent.click(screen.getByRole('button',{name:'设为默认方案'}));
+  await waitFor(()=>expect(api.updateProfile).toHaveBeenCalledWith(expect.objectContaining({preferences:expect.objectContaining({auto_images:true})})));
  });
 });

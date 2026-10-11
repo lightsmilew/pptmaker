@@ -86,6 +86,7 @@ def preview_renderer_node(state: AgentState) -> AgentState:
                 "bullet_points": page.bullet_points or [],
                 "chart_data":   page.chart_data,
                 "table_data":   page.table_data,
+                "image_id": page.image_id,
             },
             layout_json=page.layout_json,
             master_json=page.master_json,

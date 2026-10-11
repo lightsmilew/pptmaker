@@ -114,12 +114,13 @@ class PreferencePatch(BaseModel):
     language: Literal["zh-CN","en"] | None = None
     layout_mode: Literal["auto","editorial","structured","spotlight"] | None = None
     content_density: Literal["airy","balanced","compact"] | None = None
+    auto_images: bool | None = None
 
     @field_validator("style")
     @classmethod
     def valid_style(cls, value):
         from ..tools.design_catalog import STYLE_NAMES
-        if value is not None and value not in STYLE_NAMES:
+        if value is not None and value not in STYLE_NAMES | {"自动"}:
             raise ValueError("请选择目录中的演示风格")
         return value
 

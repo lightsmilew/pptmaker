@@ -62,7 +62,7 @@ class AccountRepository:
             profile = dict(account_id="local_"+uuid.uuid4().hex[:12], display_name="Folio 创作者",
                            email="", company="", occupation="", bio="", timezone="Asia/Shanghai",
                            created_at=datetime.now(timezone.utc).isoformat(),
-                           preferences=dict(style="商务简约", page_count=8, language="zh-CN", layout_mode="auto", content_density="balanced"))
+                           preferences=dict(style="自动", page_count=8, language="zh-CN", layout_mode="auto", content_density="balanced", auto_images=True))
             db.execute("INSERT OR IGNORE INTO local_account VALUES ('local',?)", (json.dumps(profile, ensure_ascii=False),))
             return json.loads(db.execute("SELECT data FROM local_account WHERE id='local'").fetchone()[0])
 

@@ -198,7 +198,8 @@ class WorkflowRunner:
             from ..storage.account_repository import account_repository
             preferences = account_repository(owner_id).profile()["preferences"]
             spec = {"topic": "未命名演示", "page_count": preferences["page_count"], "style": preferences["style"],
-                    "layout_mode": preferences.get("layout_mode", "auto"), "content_density": preferences.get("content_density", "balanced")}
+                    "layout_mode": preferences.get("layout_mode", "auto"), "content_density": preferences.get("content_density", "balanced"), "auto_images": preferences.get("auto_images", True)}
+        spec = {"style": "自动", "auto_images": True, **spec}
 
         state = create_initial_state(
             project_id=project_id,
@@ -223,6 +224,8 @@ class WorkflowRunner:
         current.update(patch or {})
         enforce_pages(project.get("owner_id"), current.get("page_count", 8))
         project["spec"] = current
+        if "style" in (patch or {}):
+            project.pop("style_selection", None)
         memory_store.update_project(project_id, project)
         return project
 
@@ -325,7 +328,9 @@ class WorkflowRunner:
                     raise ValueError(state["errors"][-1]["message"])
                 parsed = state["project"].spec
                 # Explicit form settings are authoritative; parsing supplies topic/notes.
-                parsed.update({k: v for k, v in spec.items() if v not in (None, "")})
+                parsed.update({k: v for k, v in spec.items() if v not in (None, "") and not (k == "style" and v == "自动")})
+                if state.get("style_selection"):
+                    project["style_selection"] = state["style_selection"]
                 enforce_pages(project.get("owner_id"), parsed.get("page_count", 8))
                 project["spec"] = parsed
                 project["status"] = "parsed"
@@ -366,6 +371,11 @@ class WorkflowRunner:
         except Exception as e:
             await self._broadcast("error", {"message": f"LLM 配置错误: {e}"})
             return
+
+        if (project.get("spec") or {}).get("style") == "自动":
+            await self.cmd_parse_input(project_id)
+            if project.get("status") != "parsed":
+                return
 
         async with self._get_lock():
             try:
@@ -422,6 +432,7 @@ class WorkflowRunner:
                                 "key_points": item.get("key_points", []),
                                 "bullet_points": [],
                                 "speaker_notes": "",
+                                "image_id": item.get("image_id"),
                             },
                             "layout": {
                                 "layout_type": item.get("suggest_layout", "title_content"),
@@ -990,6 +1001,7 @@ class WorkflowRunner:
             "chart_data": content.get("chart_data") or page_dict.get("chart_data"),
             "table_data": content.get("table_data") or page_dict.get("table_data"),
             "speaker_notes": content.get("speaker_notes", page_dict.get("speaker_notes", "")),
+            "image_id": content.get("image_id", page_dict.get("image_id")),
             "style_config": style_config,
         }
 
@@ -1010,6 +1022,7 @@ class WorkflowRunner:
                     "bullet_points", page_dict.get("bullet_points", []) or []
                 ),
                 speaker_notes=content.get("speaker_notes", page_dict.get("speaker_notes", "")),
+                image_id=content.get("image_id", page_dict.get("image_id")),
                 chart_data=content.get("chart_data", page_dict.get("chart_data")),
                 table_data=content.get("table_data", page_dict.get("table_data")),
                 layout_type=layout.get("layout_type", page_dict.get("layout_type", "title_content")),
@@ -1042,6 +1055,7 @@ class WorkflowRunner:
             "chart_data": page.chart_data,
             "table_data": page.table_data,
             "speaker_notes": page.speaker_notes,
+            "image_id": page.image_id,
         }
         project["pages"] = pages
 
@@ -1050,6 +1064,8 @@ class WorkflowRunner:
         pages = project.get("pages") or []
         if not (0 <= index < len(pages)):
             return
+
+        pages[index].setdefault('content', {})['image_id'] = page.image_id
         pages[index]["layout"] = {
             "layout_type": page.layout_type,
             "layout_json": page.layout_json,

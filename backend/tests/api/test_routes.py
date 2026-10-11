@@ -97,7 +97,7 @@ class TestFileUploadParse:
     def test_upload_unsupported_extension(self, client):
         response = client.post(
             "/api/v1/upload/parse",
-            files={"file": ("image.png", b"\x89PNG", "image/png")},
+            files={"file": ("application.exe", b"binary", "application/octet-stream")},
         )
         assert response.status_code == 400
         assert "不支持" in response.json()["detail"]

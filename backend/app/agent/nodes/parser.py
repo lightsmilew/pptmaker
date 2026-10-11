@@ -8,6 +8,7 @@ from ..state import AgentState
 from ...llm import get_llm_client
 from ...contracts.json_utils import extract_json_from_text
 from ...contracts.json_contract import STRICT_JSON_SYSTEM
+from ...tools.design_catalog import STYLE_DEFINITIONS, STYLE_NAMES
 
 
 PARSER_PROMPT = """你是一个专业的PPT需求解析专家。请从用户的输入中提取PPT制作所需的关键信息。
@@ -24,12 +25,14 @@ PARSER_PROMPT = """你是一个专业的PPT需求解析专家。请从用户的�
 1. topic: PPT主题（必填）
 2. audience: 目标受众
 3. page_count: 建议页数（1-50）
-4. style: 风格要求（如：简约专业、商务正式、学术报告、科技感等）
+4. style: 根据内容、受众、语气，从下列主题中选择一个最合适的名称，必须逐字使用目录名称：
+{style_catalog}
 5. needs_cover: 是否需要封面
 6. needs_toc: 是否需要目录
 7. needs_summary: 是否需要总结页
 8. needs_chart: 是否需要图表
 9. notes: 特殊要求备注
+10. style_reason: 用一句话解释所选主题与内容的关系（不超过80字）
 
 ## 输出格式
 请输出标准JSON格式：
@@ -37,7 +40,8 @@ PARSER_PROMPT = """你是一个专业的PPT需求解析专家。请从用户的�
     "topic": "主题名称",
     "audience": "目标受众描述",
     "page_count": 8,
-    "style": "风格描述",
+    "style": "商务简约",
+    "style_reason": "适合清晰专业的业务表达",
     "needs_cover": true,
     "needs_toc": true,
     "needs_summary": true,
@@ -79,7 +83,8 @@ def parser_node(state: AgentState) -> AgentState:
     # Generate prompt
     prompt = PARSER_PROMPT.format(
         user_input=user_input,
-        uploaded_files_content=uploaded_files_text
+        uploaded_files_content=uploaded_files_text,
+        style_catalog="；".join(f"{s[0]}（{s[2]}）" for s in STYLE_DEFINITIONS),
     )
 
     # Call LLM
@@ -101,8 +106,18 @@ def parser_node(state: AgentState) -> AgentState:
 
         # Update project spec
         # Keep the user's chosen visual direction through the graph path too.
-        for key in ("style", "layout_mode", "content_density"):
-            if state["project"].spec.get(key):
+        automatic = state["project"].spec.get("style", "自动") == "自动"
+        reason = str(spec_data.pop("style_reason", ""))[:160]
+        if automatic:
+            valid = spec_data["style"] in STYLE_NAMES
+            if not valid:
+                spec_data["style"] = "商务简约"
+                reason = "主题分析未返回有效选项，已使用商务简约。"
+            state["style_selection"] = {"mode": "auto", "style": spec_data["style"], "reason": reason, "fallback": not valid}
+        for key in ("style", "layout_mode", "content_density", "auto_images"):
+            if key == "style" and automatic:
+                continue
+            if key in state["project"].spec:
                 spec_data[key] = state["project"].spec[key]
         state["project"].spec = spec_data
         state["project"].page_count = spec_data.get("page_count", 8)
@@ -148,7 +163,8 @@ def parse_input(user_input: str, uploaded_files: List[str] = None) -> Dict[str, 
 
     prompt = PARSER_PROMPT.format(
         user_input=user_input,
-        uploaded_files_content=uploaded_files_text
+        uploaded_files_content=uploaded_files_text,
+        style_catalog="；".join(f"{s[0]}（{s[2]}）" for s in STYLE_DEFINITIONS),
     )
 
     llm = get_llm_client("parser")

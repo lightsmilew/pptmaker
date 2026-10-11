@@ -8,3 +8,4 @@
 .presentation-review-details p,.presentation-review-details ul { margin-top:8px; }
 .presentation-review-details ul { padding-left:18px; list-style:disc; }
 @media(max-width:650px) { .presentation-review-notice { align-items:flex-start; flex-direction:column; gap:12px; padding:14px; } }
+.presentation-auto-theme { font-size:11px; line-height:1.8; color:var(--folio-green); margin:12px 0; }.presentation-auto-theme span { color:var(--folio-muted); }

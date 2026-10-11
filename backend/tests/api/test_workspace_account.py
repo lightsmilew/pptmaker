@@ -24,7 +24,7 @@ def test_profile_persists_and_preferences_merge(client, tmp_path):
     saved = AccountRepository(str(tmp_path / "account.sqlite3"), original["profile"]["account_id"]).profile()
     assert saved["display_name"] == "林间"
     assert saved["account_id"] == original["profile"]["account_id"]
-    assert saved["preferences"] == {"style":"学术简约", "page_count":8, "language":"zh-CN", "layout_mode":"auto", "content_density":"balanced"}
+    assert saved["preferences"] == {"style":"学术简约", "page_count":8, "language":"zh-CN", "layout_mode":"auto", "content_density":"balanced", "auto_images":True}
     assert "api_key" not in updated.json()["account"]
     assert "api_key" not in updated.json()["profile"]
     assert updated.json()["account"]["authentication"] == "server_session"

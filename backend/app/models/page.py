@@ -60,6 +60,7 @@ class PageState(BaseModel):
     chart_data: Optional[Dict[str, Any]] = None
     table_data: Optional[Dict[str, Any]] = None
     speaker_notes: str = ""
+    image_id: Optional[str] = None
 
     # Layout
     layout_type: str = "title_content"
@@ -128,6 +129,7 @@ class PageState(BaseModel):
                 "chart_data": self.chart_data,
                 "table_data": self.table_data,
                 "speaker_notes": self.speaker_notes,
+                "image_id": self.image_id,
             },
             "layout": {
                 "layout_type": self.layout_type,

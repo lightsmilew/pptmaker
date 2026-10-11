@@ -108,7 +108,7 @@ def test_catalog_and_settings_contract(authenticated_client,tmp_path,monkeypatch
     assert len(response.json()["styles"]) == 16
     spec=dict(style="复古印刷",layout_mode="editorial",content_density="airy",page_count=6)
     created=client.post("/api/v1/projects",json={"spec":spec,"user_input":"文化分享"})
-    assert created.status_code == 200 and created.json()["spec"] == spec
+    assert created.status_code == 200 and created.json()["spec"] == {"auto_images": True, **spec}
     profile=client.patch("/api/v1/account/profile",json={"preferences":spec | {"page_count":6}})
     assert profile.status_code == 200
     assert profile.json()["profile"]["preferences"]["layout_mode"] == "editorial"

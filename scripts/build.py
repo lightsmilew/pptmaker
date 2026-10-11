@@ -99,7 +99,50 @@ def prepare_payload(destination, wheel, frontend, domain, certificates, *, bundl
             text = source.read_text(encoding="utf-8").replace("@@DOMAIN@@", domain)
             write_text(destination / "deployment" / source.relative_to(ROOT / "deployment"), text)
     shutil.copy2(ROOT / "DEPLOY.md", destination / "DEPLOY.md")
-    for relative in ("docs/OPERATIONS.md", "docs/images/production-admin-login.jpg", "docs/images/production-admin-mobile.jpg"):
+    documentation = (
+        'README.md',
+        'SPEC.md',
+        'TESTING.md',
+        'docs/API.md',
+        'docs/ADMIN_API.md',
+        'docs/DESIGN_SYSTEM.md',
+        'docs/OPERATIONS.md',
+        'docs/OPTIMIZATION.md',
+        'docs/TEMPLATE_REFERENCES.md',
+        'docs/IMAGE_SOURCES.md',
+        'docs/images/mobile-topbar.png',
+        'docs/images/mobile-navigation.png',
+        'docs/images/shared-buttons-desktop.png',
+        'docs/images/creative-direction-images.png',
+        'docs/images/admin-announcements.png',
+        'docs/images/admin-announcements-mobile.png',
+        'docs/images/user-announcement.png',
+        'docs/images/user-announcement-mobile.png',
+        'docs/images/illustrated-forest.png',
+        'docs/images/illustrated-office.png',
+        'docs/images/public-home.png',
+        'docs/images/workbench.png',
+        'docs/images/creative-direction-auto.png',
+        'docs/images/creative-direction-mobile.png',
+        'docs/images/presentation.png',
+        'docs/images/presentation-mobile.png',
+        'docs/images/folio-controls-desktop.png',
+        'docs/images/folio-controls-mobile.png',
+        'docs/images/admin-users.jpg',
+        'docs/images/admin-login.jpg',
+        'docs/images/admin-overview.jpg',
+        'docs/images/admin-memberships-mobile.jpg',
+        'docs/images/production-admin-login.jpg',
+        'docs/images/production-admin-mobile.jpg',
+        'docs/images/support-user.png',
+        'docs/images/creative-reference-paste.png',
+        'docs/images/support-attachments.png',
+        'docs/images/support-attachments-mobile.png',
+        'docs/images/support-mobile.png',
+        'docs/images/support-admin-mobile.png',
+        'docs/images/admin-generation-preview.png',
+    )
+    for relative in documentation:
         source = ROOT / relative
         if source.is_file():
             target = destination / relative

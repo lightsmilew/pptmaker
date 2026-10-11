@@ -1,6 +1,6 @@
 # Folio API 与事件协议
 
-更新：2026-10-09。开发 API 位于 `http://127.0.0.1:8000`，前端同源访问。账号、项目、附件、用量和额度在服务端按用户隔离。业务 REST 和文件未登录返回 401，其他用户的项目返回 404。OpenAPI `/docs` 为字段约束来源。
+更新：2026-10-10。开发 API 位于 `http://127.0.0.1:8000`，前端同源访问。账号、项目、附件、用量和额度在服务端按用户隔离。业务 REST 和文件未登录返回 401，其他用户的项目返回 404。OpenAPI `/docs` 为字段约束来源。
 
 ## 发布环境与同源代理
 
@@ -83,7 +83,7 @@
 
 ### 文档导入
 
-`POST /api/v1/upload/parse`：`multipart/form-data` 的 `file` 字段，最大 10 MiB。支持 `.pdf`、`.docx`、`.md`、`.markdown`、`.txt`，不支持 `.doc`。
+`POST /api/v1/upload/parse`：`multipart/form-data` 的 `file` 字段，最大 10 MiB。支持 `.pdf`、`.docx`、`.pptx`、`.md`、`.markdown`、`.txt`、`.csv`、`.png`、`.jpg`、`.jpeg`、`.webp`，不支持 `.doc`。
 
 返回 `upload_id`、`filename`、`size`（实际字节数）、`content`、`content_preview`（前 500 字）。网页只保留 ID / 名称 / 大小，不拼接全文；创建时后端读取所属附件并去重，同一附件 ID 只加入一次材料。原始文件写入服务端 `uploads/{user_id}/{upload_id}/original.{ext}`，提取文本与归属写数据库。格式不支持、超限、空文本、损坏文档为 400；不自动创建项目；PDF 无 OCR。此接口需要 Cookie 与 CSRF，原始附件没有公开下载路径。
 
@@ -183,10 +183,62 @@
 
 `GET /api/v1/design/catalog` 需要有效登录，返回 `styles`（16 项）、`layout_modes`（4 项）和 `densities`（3 项）。风格字段：`name`、`category`、`description`、`family`、`primary`、`secondary`、`text`、`background`；编排 / 密度字段：`id`、`name`、`description`。网页风格目录以此为来源。
 
-创建和 `update_spec` 共同接受 `layout_mode: auto | editorial | structured | spotlight` 与 `content_density: airy | balanced | compact`；省略时分别为 `auto`、`balanced`。`style` 为目录中中文名称，创建也兼容生成器旧别名；未知风格 / 枚举返回 422，WS 更新则发出错误事件。`notes` 最多 4000 字符。
+创建和 `update_spec` 共同接受 `layout_mode: auto | editorial | structured | spotlight` 与 `content_density: airy | balanced | compact`；省略时分别为 `auto`、`balanced`。`style` 默认为“自动”，也接受目录中中文名称，创建也兼容生成器旧别名；未知风格 / 枚举返回 422，WS 更新则发出错误事件。`notes` 最多 4000 字符。
 
 前端自定义下拉菜单传递目录中的原始 `id` / `name`，不把显示标签当作新枚举；页数加减与输入共用 1–50 整数约束。控件样式变化不改变 REST / WebSocket 请求格式，服务端仍独立校验输入。
 
 `PATCH /api/v1/account/profile` 的 `preferences` 可合并保存 `style`、`page_count`、`layout_mode`、`content_density`。用户不能指定颜色、字体路径或绘制代码。实际导出的布局选择保存在 `pages[].layout.layout_json`，包含 `layout_type`、`template_version: 3` 和 measured placeholders。PNG 与 PPTX 使用相同结构。
 
 工作流完成时继续发送 `completed` 事件，其 `data.download_url` 指向导出文件。前端只显示下载按钮，不自动获取该文件。只有点击下载才请求私有 `/storage/…pptx`。
+
+
+## 自动主题与问题沟通（2026-10-10）
+
+新账号的默认方案和未指定 style 的项目使用 `style: "自动"`。前端同时提供自动与16种手动主题。`parser` 的一次模型调用同时解析需求，并根据内容、受众、语气选择一个实际主题；无需额外的主题分析请求。生成前将 `spec.style` 改为具体目录名称，并保存 `style_selection: {mode:"auto",style,reason,fallback}`。手动选择保持优先；已解析的项目继续制作时沿用结果。模型返回目录外主题时回退商务简约，并明确标记 fallback；接口失败仍按原需求解析错误处理。仅更新 style 不会重绘已完成页面，改变视觉方案应创建新的演示。
+
+支持接口需要普通用户会话；所有写操作需要 Origin / CSRF 验证。每位用户拥有一个沟通会话，管理员回复后用户可继续跟进。
+
+| 方法 | 路径 | 请求 / 返回 |
+|---|---|---|
+| GET | `/api/v1/support` | 可选 before（消息序号）；conversation、messages={items,has_more,before}，每批40条 |
+| POST | `/api/v1/support/messages` | multipart：text（最多4000字）、request_id（12–80位字母/数字/下划线/短横线）、images、files（总共最多3个附件）；返回 id、user_id |
+| POST | `/api/v1/support/read` | JSON `{last_id}`，只推进自己的会话已读位置 |
+| GET / HEAD | `/api/v1/support/images/{image_id}` | 仅本人可读取的 JPEG 图片 |
+| GET | `/api/v1/support/events` | SSE：support 事件含 unread、last_message_id、last_incoming_id、revision；expired 事件表示会话失效 |
+
+消息支持纯文字、纯附件或混合。files 每个最多10 MiB，服务端采用不可预测 ID 存储，下载强制 attachment、application/octet-stream 与 nosniff；图片即使提交到 files 字段也执行图片校验。每张图片上限5 MiB，仅 PNG / JPEG / WebP，最多1600万像素；后端校验并转为最长边2400px的 JPEG，去除原始元数据。图片路径不公开映射。request_id 按发送者去重，失败重试同一消息不会重复入库。每个发送账号15分钟内最多90次新消息尝试。空消息、无效图片和无效已读位置返回422，超大附件413，频繁发送429。
+
+在线通知依靠有 Cookie 的 EventSource，不在 URL 或 localStorage 保存令牌。事件连接每2秒检查数据库变化与会话有效性，自动重连后补齐未读状态；仅提供站内提示和导航徽标，无离线推送、短信或邮件。后台页面不自动标记消息已读。管理员沟通接口见 [ADMIN_API.md](ADMIN_API.md)。
+
+
+图片清理只覆盖消息提交前的失败。消息已经提交后，活动日志异常不会删除附件；以原 request_id 重试可返回已保存的消息。
+
+
+### 粘贴与文件附件补充（2026-10-10）
+
+`POST /api/v1/upload/parse` 新增 PPTX、CSV、PNG、JPEG、WebP，原 PDF / DOCX / Markdown / TXT 保持；单文件10 MiB。响应新增 `notice`（正常时空串）。图片 OCR 只提取文字作为生成材料，不自动将参考图片嵌入 PPT。OCR 不可用或未识别时返回已保存的 upload_id、空 content 和提示；仅此类附件而无制作要求的创建返回422。图片校验实际内容与1600万像素上限，后台线程运行本机中英文 Tesseract（30秒限制）。
+
+`GET|HEAD /api/v1/support/files/{file_id}` 下载当前用户会话中的原始文件；他人或不存在404，未登录401。消息对象新增 `files: [{id,filename,size,url}]`，旧消息为空数组。选择、拖放与剪贴板文件共用 multipart 上传；图片继续使用 images 字段。
+
+## 自动配图
+
+`spec.auto_images` 为布尔值；新项目默认为 true，也接受显式 false。`PATCH /api/v1/account/profile` 的 `preferences.auto_images` 保存账号默认选项。已有项目缺字段保持不配图。`GET /api/v1/design/catalog` 增加 `illustrations: {count:42,categories:[…]}`，由实际随包图库生成。
+
+大纲及 `pages[].content` 增加可空 `image_id`，由规划和布局流程确定；前端无权输入图片文件路径或任意外部 URL。编号缺失、无效、重复、类型不适合或压缩文字时省略图片。预览和下载继续使用原有受保护地址。主题配图的图片来源、许可及裁剪说明写入对应 PPTX 页面备注。
+
+## 用户公告
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/v1/announcements` | 用户会话；返回有效且该用户当日未隐藏的公告 |
+| POST | `/api/v1/announcements/{id}/dismiss` | 用户会话 + CSRF；正文 `{"revision":1}`，隐藏当前发布版本至北京时间当天结束 |
+
+列表返回 `{"items":[{"id":"notice_…","title":"…","body":"…","revision":1,"published_at":"ISO UTC","expires_at":null}],"day":"2026-10-10","timezone":"Asia/Shanghai"}`。隐藏返回 `{"ok":true,"day":"…"}`；过期、撤回、不存在或版本不一致404，未登录401、CSRF不符403。普通关闭不调用隐藏接口。服务端每日记录与具体用户绑定，浏览器不保存公告隐藏身份/令牌。
+
+## 图片上传与轻量预览（2026-10-11）
+
+消息 `images[]` 新增 `thumbnail_url`；`url`仍指向完整规范化JPEG。用户 `GET|HEAD /api/v1/support/images/{image_id}/thumbnail` 返回480px以内WebP，管理员对应 `/api/v1/admin/support/images/{image_id}/thumbnail`。未登录401，其他用户或不存在404。旧消息无需数据库迁移，首次授权访问补建缩略图。
+
+完整图与缩略图返回 `Cache-Control: private, no-cache`、`ETag`、`Vary: Cookie`（跨域时同时包含Origin）。`If-None-Match`匹配返回304，但须先通过会话和所属账号检查；其他接口与错误响应仍no-store。
+
+前端所有图片入口在multipart前压缩WebP：参考最长边3200px/质量0.94，沟通2400px/质量0.84，仅在比原文件减少至少10%时采用，非图片不修改；旧浏览器保留原文件。文件名扩展名随实际格式改为.webp，parse响应size反映实际接收字节。重试复用准备结果，账号切换期间不继续发出上传。后端仍按现有限额、像素和真实内容校验，不信任前端压缩。沟通图合成白底、去元数据、输出2400px内JPEG质量84，并预生成480px WebP质量78。

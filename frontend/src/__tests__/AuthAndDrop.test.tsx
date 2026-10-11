@@ -7,7 +7,7 @@ import { api, setSessionCsrf } from '@/api/client';
 import { useProjectStore } from '@/stores/projectStore';
 
 vi.mock('@/hooks/useWebSocket',() => ({ useWebSocket:vi.fn() }));
-vi.mock('@/api/client',() => ({ setSessionCsrf:vi.fn(),api:{ getSession:vi.fn(),getAccount:vi.fn(),login:vi.fn(),register:vi.fn(),logout:vi.fn(),uploadAndParse:vi.fn() } }));
+vi.mock('@/api/client',() => ({ setSessionCsrf:vi.fn(),api:{ getAnnouncements:vi.fn().mockResolvedValue({items:[],day:"2026-10-10"}),getSession:vi.fn(),getAccount:vi.fn(),login:vi.fn(),register:vi.fn(),logout:vi.fn(),uploadAndParse:vi.fn() } }));
 const account:any={ profile:{ account_id:'user_a',display_name:'Alice',email:'a@example.test',preferences:{ style:'商务简约',page_count:8 } },membership:{name:'Folio Basic'}, account:{} };
 beforeEach(() => {
   vi.clearAllMocks(); window.location.hash=''; useProjectStore.getState().clearProject(); useProjectStore.setState({draftInput:'',draftFiles:[]});
@@ -54,12 +54,22 @@ describe('public site and server login',() => {
 });
 
 describe('document drop across the workbench',() => {
+  it('avoids re-uploading the same reference after compression changes its name and size',async () => {
+    vi.mocked(api.uploadAndParse).mockResolvedValue({upload_id:'upload_compressed',filename:'photo.webp',size:100,content:'内容',content_preview:'内容'});
+    const file=new File(['x'.repeat(1000)],'photo.png',{type:'image/png'});
+    render(<InputPanel mode="content" onSubmit={vi.fn()} />);
+    fireEvent.drop(document.body,{dataTransfer:{types:['Files'],files:[file]}});
+    await screen.findByText('photo.webp');
+    fireEvent.paste(document.body,{clipboardData:{files:[file],items:[]}});
+    await waitFor(()=>expect(screen.queryByText('正在读取参考资料…')).not.toBeInTheDocument());
+    expect(api.uploadAndParse).toHaveBeenCalledTimes(1);
+  });
   it('accepts files dropped outside the upload box, prevents browser navigation and avoids duplicates',async () => {
     vi.mocked(api.uploadAndParse).mockResolvedValue({upload_id:'upload_a',filename:'notes.txt',content:'研究要点',content_preview:'研究要点'});
     const file=new File(['研究要点'],'notes.txt',{type:'text/plain'});
     render(<InputPanel mode="content" onSubmit={vi.fn()} />);
     fireEvent.dragEnter(document.body,{dataTransfer:{types:['Files'],files:[file]}});
-    expect(screen.getByRole('status')).toHaveTextContent('松开，把文档放进来');
+    expect(screen.getByRole('status')).toHaveTextContent('松开，把参考资料放进来');
     const drop=new Event('drop',{bubbles:true,cancelable:true}); Object.defineProperty(drop,'dataTransfer',{value:{types:['Files'],files:[file]}});
     fireEvent(document.body,drop);
     expect(drop.defaultPrevented).toBe(true);
@@ -68,15 +78,28 @@ describe('document drop across the workbench',() => {
     expect(useProjectStore.getState().draftInput).toBe('');
     expect(screen.getByRole('button',{name:'创建演示'})).toBeEnabled();
     fireEvent.drop(document.body,{dataTransfer:{types:['Files'],files:[file]}});
-    await waitFor(() => expect(screen.queryByText('正在上传和解析…')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText('正在读取参考资料…')).not.toBeInTheDocument());
     expect(api.uploadAndParse).toHaveBeenCalledTimes(1);
   });
   it('rejects unsupported files before uploading and leaves text drag unaffected',async () => {
     render(<InputPanel mode="content" onSubmit={vi.fn()} />);
     fireEvent.drop(document.body,{dataTransfer:{types:['Files'],files:[new File(['binary'],'old.doc')]}});
-    await waitFor(() => expect(screen.queryByText('正在上传和解析…')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText('正在读取参考资料…')).not.toBeInTheDocument());
     expect(api.uploadAndParse).not.toHaveBeenCalled();
     const drop=new Event('drop',{bubbles:true,cancelable:true}); Object.defineProperty(drop,'dataTransfer',{value:{types:['text/plain'],files:[]}}); fireEvent(document.body,drop);
     expect(drop.defaultPrevented).toBe(false);
+  });
+  it('pastes a screenshot or document via either clipboard representation without intercepting plain text',async()=>{
+    vi.mocked(api.uploadAndParse).mockImplementation(async file=>({upload_id:'upload_'+file.name,filename:file.name,content:'参考文字',content_preview:'参考文字'}));
+    render(<InputPanel mode="content" onSubmit={vi.fn()} />);
+    const image=new File(['screenshot'],'clipboard.png',{type:'image/png'});
+    fireEvent.paste(document.body,{clipboardData:{files:[],items:[{kind:'file',getAsFile:()=>image}]}});
+    expect(await screen.findByText('clipboard.png')).toBeInTheDocument();
+    const doc=new File(['document'],'reference.pdf',{type:'application/pdf'});
+    fireEvent.paste(screen.getByRole('textbox',{name:'演示内容或制作要求'}),{clipboardData:{files:[doc],items:[]}});
+    expect(await screen.findByText('reference.pdf')).toBeInTheDocument();
+    expect(api.uploadAndParse).toHaveBeenCalledWith(image); expect(api.uploadAndParse).toHaveBeenCalledWith(doc);
+    const event=new Event('paste',{bubbles:true,cancelable:true}); Object.defineProperty(event,'clipboardData',{value:{files:[],items:[{kind:'string'}]}}); fireEvent(document.body,event);
+    expect(event.defaultPrevented).toBe(false);
   });
 });

@@ -1,3 +1,4 @@
+import { publicTitle } from '@/lib/pageTitles';
 import { useEffect, useState } from 'react';
 import { ArrowRight, ArrowUpRight, Check, Eye, EyeOff, FileText, FolderOpen, LayoutTemplate, LockKeyhole, Quote, Sparkles } from 'lucide-react';
 import { Button, Input } from '@/components/ui';
@@ -11,7 +12,7 @@ const styles = [
   { name:'科技风', color:'#b8dacf', paper:'#17242c', title:'下一步，\n从这里开始。', label:'MIDNIGHT / 03' },
 ];
 const features = [
-  { icon:FileText, title:'从你已有的内容开始', text:'写下一段想法，或导入 PDF、Word、Markdown 与 TXT。把散落的资料放在一起，找到表达的主线。' },
+  { icon:FileText, title:'从你已有的内容开始', text:'写下一段想法，或导入文档、既有演示与截图。把散落的资料放在一起，找到表达的主线。' },
   { icon:LayoutTemplate, title:'让内容找到合适的版式', text:'十六种演示风格，按受众与页数组织结构。标题、要点、图表和演讲备注，各有自己的位置。' },
   { icon:FolderOpen, title:'每一次表达，都有迹可循', text:'在自己的工作空间预览、下载与整理作品。搜索、收藏、标签和归档，让下一次创作更轻松。' },
 ];
@@ -24,7 +25,7 @@ export function PublicHome({ onAuthenticated, signedIn = false, onEnter }: {
   const [confirm,setConfirm] = useState(''); const [showPassword,setShowPassword] = useState(false);
   const [busy,setBusy] = useState(false); const [error,setError] = useState(''); const [style,setStyle] = useState(0);
   useEffect(() => { const update = () => { setRegistering(window.location.hash === '#/register'); setError(''); }; window.addEventListener('hashchange',update); return () => window.removeEventListener('hashchange',update); }, []);
-  useEffect(() => { document.title = registering ? '写下你的第一章 — Folio' : 'Folio — Ideas deserve a beautiful stage.'; }, [registering]);
+  useEffect(() => { document.title = publicTitle(registering); }, [registering]);
   const switchMode = (value: boolean) => { setRegistering(value); setError(''); setPassword(''); setConfirm(''); window.location.hash = value ? '/register' : '/login'; };
   const focusAuth = (value: boolean) => { switchMode(value); document.getElementById('welcome-form')?.scrollIntoView({ behavior:'smooth', block:'center' }); };
   const submit = async (e: React.FormEvent) => {
@@ -54,11 +55,11 @@ export function PublicHome({ onAuthenticated, signedIn = false, onEnter }: {
           <div className="auth-margin-note"><Quote size={19} /><p>好内容，<br />值得好好呈现。</p><span>LET YOUR IDEAS UNFOLD.</span></div>
         </aside>
       </section>
-      <div className="public-format-strip"><span>从熟悉的材料开始</span><div><span>PDF</span><span>Word</span><span>Markdown</span><span>TXT</span><span>一段灵感</span></div><span>以可编辑 PowerPoint 交付 <ArrowUpRight size={14} /></span></div>
+      <div className="public-format-strip"><span>从熟悉的材料开始</span><div><span>PDF</span><span>Word</span><span>Markdown</span><span>PPTX</span><span>截图</span><span>一段灵感</span></div><span>以可编辑 PowerPoint 交付 <ArrowUpRight size={14} /></span></div>
       <section className="public-section" id="features"><div className="public-section-heading"><p className="eyebrow">MADE FOR YOUR IDEAS</p><h2>从内容到演示，<br />少一点忙乱，多一点从容。</h2><p>让工具处理结构与版式。<br />让你专注观点、故事和听众。</p></div><div className="public-feature-grid">{features.map((f,i) => <article key={f.title}><div className="feature-top"><f.icon size={23} strokeWidth={1.4} /><span>0{i+1}</span></div><h3>{f.title}</h3><p>{f.text}</p></article>)}</div></section>
-      <section className="public-process" id="how-it-works"><div className="public-section-heading"><p className="eyebrow">A SIMPLE, THOUGHTFUL FLOW</p><h2>三步，把想法展开成页。</h2><p>从一份材料开始，走向一次清晰的表达。</p></div><ol>{[{title:'放入你的内容',text:'写下主题与要求，或把参考文档拖入制作工作台。'}, {title:'选一种表达方式',text:'决定听众、页数和风格，让大纲与页面围绕内容展开。'}, {title:'预览，然后带走',text:'查看页面与演讲备注，下载可编辑的 PowerPoint，继续打磨。'}].map((s,i) => <li key={s.title}><span className="process-number">0{i+1}</span><div><h3>{s.title}</h3><p>{s.text}</p></div><ArrowRight size={19} /></li>)}</ol></section>
+      <section className="public-process" id="how-it-works"><div className="public-section-heading"><p className="eyebrow">A SIMPLE, THOUGHTFUL FLOW</p><h2>三步，把想法展开成页。</h2><p>从一份材料开始，走向一次清晰的表达。</p></div><ol>{[{title:'放入你的内容',text:'写下主题与要求，或把文档与图片拖入、粘贴到创作页面。'}, {title:'选一种表达方式',text:'决定听众、页数和风格，让大纲与页面围绕内容展开。'}, {title:'预览，然后带走',text:'查看页面与演讲备注，下载可编辑的 PowerPoint，继续打磨。'}].map((s,i) => <li key={s.title}><span className="process-number">0{i+1}</span><div><h3>{s.title}</h3><p>{s.text}</p></div><ArrowRight size={19} /></li>)}</ol></section>
       <section className="public-section public-use-cases"><div className="public-section-heading"><p className="eyebrow">EVERY STORY HAS ITS STAGE</p><h2>不同的场合，同样清晰。</h2></div><div>{[{name:'汇报与提案',en:'PRESENT WITH PURPOSE',text:'把进展、洞察与下一步，讲成一个有重点的故事。',mark:'01'}, {name:'研究与分享',en:'MAKE KNOWLEDGE CLEAR',text:'让复杂的概念有层次，让关键结论被看见。',mark:'02'}, {name:'课程与教学',en:'GIVE IDEAS ROOM',text:'从知识框架到课堂要点，为理解留出空间。',mark:'03'}].map(c => <article key={c.name}><span>{c.mark}</span><small>{c.en}</small><h3>{c.name}</h3><p>{c.text}</p></article>)}</div></section>
-      <section className="public-faq" id="questions"><div className="public-section-heading"><p className="eyebrow">BEFORE YOU BEGIN</p><h2>开始前，你可能想知道。</h2></div><div>{[{q:'我需要先写好完整的大纲吗？',a:'不用。可以先写下主题、听众和关键观点，也可以上传现有文档。Folio 会根据内容规划演示结构；具体要求越清楚，内容越贴近你的目标。'}, {q:'生成的文件可以继续编辑吗？',a:'可以。导出格式为 .pptx，文字、基础形状、表格和支持的图表可在 PowerPoint 中继续编辑。网页提供预览和演讲备注。'}, {q:'支持哪些文件？',a:'支持可提取文本的 PDF、DOCX、Markdown 和 TXT，单文件最大 10 MiB。扫描 PDF 需先转换为文本，暂不支持旧版 .doc。'}, {q:'制作完成后，如何获得演示文件？',a:'先在网页查看页面预览，再点击“下载 PowerPoint”带走作品。文件不会自动下载，你可以按自己的节奏继续打磨。'}].map(f => <details key={f.q}><summary>{f.q}<span>+</span></summary><p>{f.a}</p></details>)}</div></section>
+      <section className="public-faq" id="questions"><div className="public-section-heading"><p className="eyebrow">BEFORE YOU BEGIN</p><h2>开始前，你可能想知道。</h2></div><div>{[{q:'我需要先写好完整的大纲吗？',a:'不用。可以先写下主题、听众和关键观点，也可以上传现有文档。Folio 会根据内容规划演示结构；具体要求越清楚，内容越贴近你的目标。'}, {q:'生成的文件可以继续编辑吗？',a:'可以。导出格式为 .pptx，文字、基础形状、表格和支持的图表可在 PowerPoint 中继续编辑。网页提供预览和演讲备注。'}, {q:'支持哪些文件？',a:'支持 PDF、DOCX、PPTX、Markdown、TXT、CSV 与 PNG、JPEG、WebP 图片，单文件最大 10 MiB。截图可识别文字；扫描 PDF 需先转换为文本，暂不支持旧版 .doc。'}, {q:'制作完成后，如何获得演示文件？',a:'先在网页查看页面预览，再点击“下载 PowerPoint”带走作品。文件不会自动下载，你可以按自己的节奏继续打磨。'}].map(f => <details key={f.q}><summary>{f.q}<span>+</span></summary><p>{f.a}</p></details>)}</div></section>
       <section className="public-final-cta"><div><p className="eyebrow">LET YOUR IDEAS UNFOLD.</p><h2>下一次好表达，<br />从你的一个想法开始。</h2></div><Button onClick={signedIn ? onEnter : () => focusAuth(true)}>开始你的第一份演示 <ArrowUpRight size={16} /></Button></section>
     </main><footer className="public-footer"><Brand href="#/" /><p>好内容，值得好好呈现。</p><span>Folio — Let your ideas unfold.</span><a className="text-link" href="#/admin/login">管理入口</a></footer>
   </div>;

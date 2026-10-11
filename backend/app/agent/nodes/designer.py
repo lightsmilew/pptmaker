@@ -54,12 +54,29 @@ def designer_node(state: AgentState) -> AgentState:
             max(len(page.key_points), len(page.bullet_points)), bool(page.subtitle), suggested,
             layout_mode=spec.get("layout_mode", "auto"), page_index=page_index,
             family=get_theme(style)["family"], density=spec.get("content_density", "balanced"))]
+        from ...tools.photo_library import crop_photo
+        from ...tools.slide_scene import illustrated_layout
+        photo_allowed = (spec.get('auto_images', False) and page.page_type.value in ('cover','content','conclusion','thankyou')
+                         and max(len(page.key_points), len(page.bullet_points)) <= 4
+                         and suggested.lower() not in ('comparison','timeline','two_column','对比','流程')
+                         and not page.chart_data and not page.table_data)
+        if photo_allowed and crop_photo(page.image_id, 8, 8) is not None:
+            layout_data['layouts'] = [illustrated_layout(page.page_type.value, bool(page.subtitle), page_index)]
+        else:
+            page.image_id = None
         from ...tools.slide_scene import build_scene
         measured = build_scene(dict(page_type=page.page_type.value, title=page.title, subtitle=page.subtitle,
                                     key_points=page.key_points, bullet_points=page.bullet_points,
                                     chart_data=page.chart_data, table_data=page.table_data,
+                                    image_id=page.image_id,
                                     style_config={"layouts":layout_data["layouts"]}), get_theme(style))
-        if any(e.get("overflow") for e in measured["elements"]) and page.page_type.value not in ("cover", "thankyou", "chart", "table", "toc"):
+        if page.image_id and any(e.get('overflow') for e in measured['elements']):
+            page.image_id = None
+            layout_data['layouts'] = [template_layout(page.page_type.value,
+                max(len(page.key_points), len(page.bullet_points)), bool(page.subtitle), suggested,
+                layout_mode=spec.get('layout_mode','auto'), page_index=page_index,
+                family=get_theme(style)['family'], density=spec.get('content_density','balanced'))]
+        elif any(e.get("overflow") for e in measured["elements"]) and page.page_type.value not in ("cover", "thankyou", "chart", "table", "toc"):
             # Dense paragraphs need wider regions even when a compact grid was selected.
             layout_data["layouts"] = [template_layout(page.page_type.value,
                 max(len(page.key_points), len(page.bullet_points)), bool(page.subtitle), "two_column",

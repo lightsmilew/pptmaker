@@ -38,6 +38,10 @@ def review_scene(page, style="商务简约"):
         for b in text_boxes[i+1:]:
             if min(a["x"]+a["w"],b["x"]+b["w"]) > max(a["x"],b["x"])+.02 and min(a["y"]+a["h"],b["y"]+b["h"]) > max(a["y"],b["y"])+.02:
                 issue("overlap",a["name"],f"与 {b['name']} 的文字区域重叠")
+    for image in (e for e in scene['elements'] if e['kind'] == 'image'):
+        for text in text_boxes:
+            if min(image['x']+image['w'],text['x']+text['w']) > max(image['x'],text['x'])+.02 and min(image['y']+image['h'],text['y']+text['h']) > max(image['y'],text['y'])+.02:
+                issue('overlap',image['name'],f"图片与 {text['name']} 的文字区域重叠")
     return dict(status="needs_revision" if issues else "approved",
                 score=max(0,100-20*len(issues)),dimensions={},issues=issues,
                 review_method="local_geometry", next_action="revise_content" if any(i["owner"] == "content" for i in issues)

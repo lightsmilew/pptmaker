@@ -68,7 +68,7 @@ class AuthRepository:
         uid = "user_" + uuid.uuid4().hex
         profile = dict(account_id=uid, display_name=display_name, email=email, company="", occupation="",
                        bio="", timezone="Asia/Shanghai", created_at=datetime.now(timezone.utc).isoformat(),
-                       preferences=dict(style="商务简约", page_count=8, language="zh-CN", layout_mode="auto", content_density="balanced"))
+                       preferences=dict(style="自动", page_count=8, language="zh-CN", layout_mode="auto", content_density="balanced", auto_images=True))
         hashed = password_hash(password)
         with self.connect() as db:
             db.execute("INSERT INTO users(id,email,password_hash,profile,membership,role) VALUES (?,?,?,?,?,?)",

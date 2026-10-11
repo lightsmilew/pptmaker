@@ -33,8 +33,10 @@ DENSITIES = [dict(id="airy", name="舒展", description="少量重点，简短�
 
 
 def catalog():
+    from .photo_library import photos
+    library = photos()
     return dict(styles=[dict(name=name, category=category, description=description,
                             family=family, primary=primary, secondary=secondary,
                             text=text, background=background)
                         for name, category, description, family, primary, secondary, text, background in STYLE_DEFINITIONS],
-                layout_modes=LAYOUT_MODES, densities=DENSITIES)
+                layout_modes=LAYOUT_MODES, densities=DENSITIES, illustrations=dict(count=len(library), categories=list(dict.fromkeys(p["category_name"] for p in library.values()))))

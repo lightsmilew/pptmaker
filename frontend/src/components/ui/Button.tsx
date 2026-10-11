@@ -4,16 +4,17 @@ import { forwardRef, ButtonHTMLAttributes } from 'react';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { clsx } from 'clsx';
 import { Loader2 } from 'lucide-react';
+import './button.css';
 
 const buttonVariants = cva(
-  'inline-flex items-center justify-center gap-2 font-medium rounded-md transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed',
+  'folio-button inline-flex items-center justify-center gap-2 font-medium rounded-md transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed',
   {
     variants: {
       variant: {
         primary: 'bg-[#29483e] text-white hover:bg-[#203a32]',
-        secondary: 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50',
-        outline: 'bg-transparent text-[#29483e] border border-[#cbd4cd] hover:bg-[#eef1ed]',
-        ghost: 'bg-transparent text-gray-600 hover:bg-gray-100',
+        secondary: 'folio-button-secondary',
+        outline: 'folio-button-outline',
+        ghost: 'folio-button-ghost',
         danger: 'bg-red-600 text-white hover:bg-red-700',
       },
       size: {

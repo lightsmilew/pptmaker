@@ -1,3 +1,4 @@
+import { studioTitles } from '@/lib/pageTitles';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Button } from '@/components/ui';
@@ -15,13 +16,17 @@ import { api, setSessionCsrf, type AuthSession } from '@/api/client';
 import type { PPTProjectSpec } from '@/types';
 import type { Account } from '@/types/workspace';
 import { AdminApp } from '@/components/admin/AdminApp';
+import { SupportPage } from '@/components/support/SupportPage';
+import { useSupportNotifications } from '@/hooks/useSupportNotifications';
+import { AnnouncementDialog } from '@/components/announcements/AnnouncementDialog';
 
 function readRoute(): { section: Section; id?: string } {
   const [section,id] = window.location.hash.replace(/^#\/?/, '').split('/');
   if (section === 'project' && id) return { section, id: decodeURIComponent(id) };
-  return { section: ['settings','workspace','account'].includes(section) ? section as Section : 'home' };
+  return { section: ['settings','workspace','account','support'].includes(section) ? section as Section : 'home' };
 }
-function StudioApp({ initialAccount, onLogout }: { initialAccount: Account; onLogout: () => void }) {
+function StudioApp({ initialAccount, onLogout, sessionKey }: { initialAccount: Account; onLogout: () => void; sessionKey:string }) {
+  const supportUnread = useSupportNotifications(initialAccount.profile.account_id,false,sessionKey);
   const store = useProjectStore();
   const { project, isLoading, error, lastDownloadUrl, createProject, runWorkflow, generateParallel, workflowPending, setError, setProject } = store;
   const [route,setRoute] = useState(readRoute);
@@ -35,7 +40,7 @@ function StudioApp({ initialAccount, onLogout }: { initialAccount: Account; onLo
   const refreshAccount = useCallback(async () => { try { setAccount(await api.getAccount()); setAccountError(''); } catch (e) { setAccountError((e as Error).message); } }, []);
   useEffect(() => {
     let current = true; const originalDraft = useProjectStore.getState().draftSpec;
-    api.getAccount().then(data => { if (!current) return; setAccount(data); if (useProjectStore.getState().draftSpec === originalDraft) useProjectStore.getState().setDraftSpec({ style:data.profile.preferences.style,page_count:data.profile.preferences.page_count,layout_mode:data.profile.preferences.layout_mode || 'auto',content_density:data.profile.preferences.content_density || 'balanced' }); }).catch(e => { if (current) setAccountError(e.message); });
+    api.getAccount().then(data => { if (!current) return; setAccount(data); if (useProjectStore.getState().draftSpec === originalDraft) useProjectStore.getState().setDraftSpec({ auto_images:data.profile.preferences.auto_images ?? true, style:data.profile.preferences.style,page_count:data.profile.preferences.page_count,layout_mode:data.profile.preferences.layout_mode || 'auto',content_density:data.profile.preferences.content_density || 'balanced' }); }).catch(e => { if (current) setAccountError(e.message); });
     return () => { current = false; };
   }, []);
   useEffect(() => { if (route.section === 'account') void refreshAccount(); }, [route.section,refreshAccount]);
@@ -63,9 +68,11 @@ function StudioApp({ initialAccount, onLogout }: { initialAccount: Account; onLo
     runWorkflow();
   };
   useEffect(() => { setSelectedIndex(0); }, [project?.id]);
-  const pageTitle = route.section === 'project' ? `${project?.spec.topic || '展开你的想法'} — Folio` : route.section === 'workspace' ? '你的想法，都在这里 — Folio' : route.section === 'settings' ? '每个想法，都有自己的样子 — Folio' : route.section === 'account' ? '你的创作节奏 — Folio' : 'Folio — Let your ideas unfold.';
+  const pageTitle = studioTitles[route.section] || studioTitles.home;
   useEffect(() => { document.title = pageTitle; }, [pageTitle]);
-  return <StudioShell section={route.section} onNavigate={navigate} onNew={newPresentation} account={account} hasProject={!!project} projectTitle={project?.spec.topic} onLogout={onLogout}>
+  return <StudioShell supportUnread={supportUnread} section={route.section} onNavigate={navigate} onNew={newPresentation} account={account} hasProject={!!project} projectTitle={project?.spec.topic} onLogout={onLogout}>
+    <AnnouncementDialog sessionKey={sessionKey} />
+    {route.section === 'support' && <SupportPage />}
     {route.section === 'home' && <StudioHome maxPages={account?.membership?.limits?.max_pages} onSubmit={create} onExample={example} onSettings={() => navigate('settings')} isLoading={isLoading} error={error} />}
     {route.section === 'settings' && <SettingsPage maxPages={account?.membership?.limits?.max_pages} onBack={() => navigate('home')} onAccountChange={setAccount} />}
     {route.section === 'workspace' && <WorkspacePage onOpen={id => navigate('project',id)} onNew={newPresentation} />}
@@ -83,7 +90,7 @@ function UserApp() {
   const clearIdentity = useCallback(() => {
     setSessionCsrf(''); setSession(null);
     useProjectStore.getState().clearProject();
-    useProjectStore.setState({ draftInput:'',draftFiles:[],draftSpec:{ topic:'',page_count:8,style:'商务简约',audience:'通用',needs_cover:true,needs_toc:true,needs_summary:true,needs_chart:false } });
+    useProjectStore.setState({ draftInput:'',draftFiles:[],draftSpec:{ topic:'',page_count:8,style:'自动',audience:'通用',needs_cover:true,needs_toc:true,needs_summary:true,needs_chart:false } });
   }, []);
   const accept = useCallback((data: AuthSession) => {
     setSessionCsrf(data.csrf_token); setSession(data); setSessionError('');
@@ -107,14 +114,14 @@ function UserApp() {
     }
     return () => { window.removeEventListener('hashchange',route); window.removeEventListener('folio-session-expired',expired); window.removeEventListener('folio-session-refreshed',refreshed); channel.current?.close(); };
   }, [accept,clearIdentity,checkSession]);
-  const privateRoute = /^#\/(home|settings|workspace|account|project)(\/|$)/.test(hash);
+  const privateRoute = /^#\/(home|settings|workspace|account|project|support)(\/|$)/.test(hash);
   useEffect(() => {
     if (!checking && !session && privateRoute) { destination.current=hash; window.location.hash='/login'; }
   }, [checking,session,privateRoute,hash]);
   const login = (data: AuthSession, registered = false) => {
     sessionCheck.current++;
     clearIdentity(); accept(data); channel.current?.postMessage('changed');
-    window.location.hash = !registered && /^#\/(home|settings|workspace|account|project)(\/|$)/.test(destination.current) ? destination.current.slice(1) : '/home';
+    window.location.hash = !registered && /^#\/(home|settings|workspace|account|project|support)(\/|$)/.test(destination.current) ? destination.current.slice(1) : '/home';
     destination.current='';
   };
   const logout = async () => {
@@ -122,7 +129,7 @@ function UserApp() {
     catch (e) { toast.error((e as Error).message); }
   };
   if (checking) return <div className="session-loading" role="status"><img src="/folio-mark.svg" width="28" alt="" /><span>正在打开 Folio…</span></div>;
-  if (session && privateRoute) return <StudioApp key={session.account.profile.account_id} initialAccount={session.account} onLogout={logout} />;
+  if (session && privateRoute) return <StudioApp key={session.account.profile.account_id} initialAccount={session.account} sessionKey={session.csrf_token} onLogout={logout} />;
   return <>{sessionError && <div className="public-connection-error" role="alert">{sessionError}<Button variant="ghost" onClick={() => { setSessionError(''); setChecking(true); void checkSession(); }}>重新连接</Button></div>}<PublicHome signedIn={!!session} onAuthenticated={login} onEnter={() => { window.location.hash='/home'; }} /></>;
 }
 

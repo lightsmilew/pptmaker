@@ -18,7 +18,7 @@ def test_server_loads_external_env_before_start_and_uses_one_worker(tmp_path, mo
     assert os.environ["FOLIO_RELEASE_TEST"] == "external"
     monkeypatch.delenv("FOLIO_RELEASE_TEST")
     assert run.call_args.kwargs == dict(host="127.0.0.1", port=8100, workers=1, reload=False,
-                                       proxy_headers=True, forwarded_allow_ips="127.0.0.1")
+                                       proxy_headers=True, forwarded_allow_ips="127.0.0.1", timeout_graceful_shutdown=10)
 
 
 def test_server_bad_env_or_port_does_not_start(tmp_path):

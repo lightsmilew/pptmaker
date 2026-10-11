@@ -1,12 +1,12 @@
 # Folio 运行记录
 
-日期：2026-10-09（北京时间）。本文件记录实际部署，不含登录密码、API Key 或证书私钥。
+日期：2026-10-10（北京时间；首次部署为2026-10-09）。本文件记录实际部署，不含登录密码、API Key 或证书私钥。
 
 - 应用：https://lightsmile.ink
 - 专用管理员入口：https://lightsmile.ink/#/admin/login
 - 初始管理员邮箱：`admin@lightsmile.ink`，独立新身份，初始密码按用户提供值设置；可在“管理账号”修改。
 - 主机：Ubuntu 22.04，Python 3.10.12，Nginx 1.18.0。
-- 发布：`folio-0.1.0-r8-deploy`，应用 wheel 与 Vite 静态资源；服务器不运行源码或 Vite。
+- 发布：`folio-0.1.0-r11-support-files`，应用 wheel 与 Vite 静态资源；服务器不运行源码或 Vite。
 - 运行：systemd `folio.service`，用户 `folio`，单 worker，监听 `127.0.0.1:8000`。Nginx 提供公网 80 / 443，HTTP 跳转 HTTPS。服务已设置开机启动与异常自动重启。
 - 模型：迁移现有 DeepSeek 连接，默认 `deepseek-flash`；真实密钥仅保存于受限配置文件，管理页面不返回原值。
 
@@ -15,13 +15,13 @@
 | 路径 | 用途 |
 |---|---|
 | `/opt/folio/current` | 当前发布软链接 |
-| `/opt/folio/releases/folio-0.1.0-r8-deploy` | 当前静态资源、wheel、独立 `.venv` |
+| `/opt/folio/releases/folio-0.1.0-r11-support-files` | 当前静态资源、wheel、独立 `.venv` |
 | `/etc/folio/runtime/folio.env` | 运行配置，folio 所有，0600 |
 | `/etc/folio/tls` | Nginx 证书和私钥，私钥 0600 |
 | `/var/lib/folio/folio.sqlite3` | 正式用户、会话、会员、用量与项目 |
 | `/var/lib/folio/storage` | 正式上传、预览与 PPTX |
-| `/var/backups/folio/20261009-r8` | 本次切换前的数据和配置备份，root 专用 |
-| `/opt/folio/releases/folio-0.1.0-r7-deploy` | 保留的上一发布，可按 DEPLOY.md 回滚 |
+| `/var/backups/folio/20261010-r11` | 本次切换前的数据和配置备份，root 专用 |
+| `/opt/folio/releases/folio-0.1.0-r9-support` | 保留的上一发布，可按 DEPLOY.md 回滚 |
 
 常用命令（SSH 登录服务器后）：
 
@@ -48,3 +48,35 @@ systemctl restart folio
 管理初始密码兼容回归：后端管理与账号隔离 **23 项**、前端管理登录 **2 项**通过，生产构建通过。详细报告为本地忽略目录 `storage/deploy-qa/production-report.json`、`qa-live-report.json`；其中不含密码或密钥。
 
 ![实际公网管理登录](images/production-admin-login.jpg)
+
+
+## 2026-10-10 功能更新验收
+
+本地隔离数据库和账号验收：默认自动主题、管理员查看/下载用户演示、图文支持和跨页面消息提示。真实 DeepSeek 生成四页湿地保护演示，在需求整理的一次调用中选择“自然清新”，保留选择依据；制作共5次模型调用，2697输入 / 581输出 / 384缓存输入 Tokens。浏览器实际下载管理员 PPTX，确认四张真实 PNG；图文往返、管理员离线后收件、用户制作页收到新回复提示、打开会话后未读清零通过。手机382px布局、管理员返回列表及图片加载正常，无横向溢出。截图中为独立验收身份，不含正式用户信息。
+
+
+更新已部署为 `folio-0.1.0-r9-support`，切换前确认无制作任务，并备份数据、运行配置与 Nginx 站点配置。正式账号、密码、会员、历史演示和模型配置保持。生产 HTTPS 健康、独立管理员登录/退出、SSE即时事件、沟通收件箱、现有3份七页演示详情/图片与PPTX HEAD请求均通过；普通未登录访问用户和管理沟通接口均401。生产验收未创建测试用户或发送测试消息。
+
+
+## 截图与文件附件发布（2026-10-10）
+
+r11 发布时在无活跃制作任务的状态下切换，备份为 `/var/backups/folio/20261010-r11`，r9 保留。新增创作页截图 / 文档粘贴，PPTX / CSV 内容提取，沟通文件下载与页面拖放，后端新增附件索引表；既有账号、会员、历史演示与模型配置保留。Nginx 上传上限32m，后端图片5 MiB / 文档10 MiB，总计3个沟通附件。
+
+服务账号在隔离数据库验证新 wheel 的真实中英文 Tesseract 识别、创作资料上传、图文与文件混合消息、受保护文件读取通过；未创建正式测试账号或消息。Tesseract 引擎和 chi_sim / eng 已安装。优雅关闭上限10秒，HTTPS health 与 systemd 服务均正常。
+
+## 自动配图与公告发布（2026-10-10）
+
+当前发布为 `folio-0.1.0-r12-illustrations-notices`，备份 `/var/backups/folio/20261010-r12`，保留 r11 供回滚。切换前确认无活跃制作，保存真实账号、会员、额度、登录身份、模型配置和既有演示；没有发布生产测试公告、创建测试账号或修改用户密码。
+
+新 wheel 在 Ubuntu 22.04 / Python 3.10.12 的独立 Folio 服务账号和数据库中验收42张图片哈希、两份4页演示的原生图片与备注、Linux预览、公告权限/每日隐藏持久化/重新发布版本；已查看全部8张真实预览。PNG预览与 PPTX 使用同一场景；未运行 Office 本机渲染。
+
+正式 HTTPS 健康、Nginx 配置、systemd 服务、现有管理员登录/退出、Secure Cookie、公告管理查询、SSE和现有6份演示的所有预览及PPTX HEAD请求通过。匿名公告与私有接口401。图库离线随 wheel 部署，生成期间无需外部图片 API；新增公告表与每日记录使用同一 Folio SQLite 并继续受原备份策略保护。
+
+验收记录位于本机 `storage/deploy-qa/r12-production-report.json` 与 `r12-installed/report.json`。测试数据和预览位于服务器隔离目录 `/var/lib/folio-qa-r12`，与正式 `/var/lib/folio` 分离。
+
+## 2026-10-11 r13 移动导航与图片效率
+
+- 当前版本 `/opt/folio/releases/folio-0.1.0-r13-mobile-controls-images`；上一版r12保留，备份 `/var/backups/folio/20261011-r13`，数据/配置/TLS备份为0600。继续使用原运行环境、证书、账号与数据库。
+- 更新手机Logo顶部直接导航、共享按钮、英文标签与上传前压缩/授权缩略图。安装版在 `/var/lib/folio-qa-r13` 的独立数据库运行上传/OCR/缓存/权限验收，没有修改正式账号密码或创建正式测试公告。正式6份演示预览和下载正常。
+- Nginx语法、systemd、HTTPS health、管理员会话撤销与消息SSE通过；服务前端JS/CSS与本地最终构建逐字节一致。图库42张及公告功能沿用r12。
+- 备份范围增加support/*.thumb.webp；旧图片会按需补建，允许重新生成派生缩略图。不要把私有API设成Nginx公共缓存。

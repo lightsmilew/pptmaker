@@ -35,7 +35,7 @@ class TestOutlineRequired:
     def project_id(self):
         """A project in 'idle' state with no outline — simulating fresh creation."""
         project = WorkflowRunner.create_project(
-            spec={"topic": "Test PPT", "page_count": 4},
+            spec={"topic": "Test PPT", "page_count": 4, "style": "商务简约"},
             user_input="Make slides about testing",
         )
         return project["id"]
@@ -115,7 +115,7 @@ class TestSuccessfulSequence:
     @pytest.fixture
     def project_id(self):
         project = WorkflowRunner.create_project(
-            spec={"topic": "Success Test", "page_count": 2},
+            spec={"topic": "Success Test", "page_count": 2, "style": "商务简约"},
             user_input="Test input",
         )
         return project["id"]

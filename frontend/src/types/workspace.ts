@@ -15,7 +15,7 @@ export interface WorkspaceOverview {
 export interface Profile {
   account_id: string; display_name: string; email: string; company: string; occupation: string;
   bio: string; timezone: string; created_at: string; updated_at?: string;
-  preferences: { style: string; page_count: number; language: string; layout_mode?: import('./design').LayoutMode; content_density?: import('./design').ContentDensity };
+  preferences: { auto_images?: boolean; style: string; page_count: number; language: string; layout_mode?: import('./design').LayoutMode; content_density?: import('./design').ContentDensity };
 }
 export interface Usage {
   period: string; period_start: string; resets_at: string; calls: number; lifetime_calls: number;

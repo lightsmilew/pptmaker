@@ -6,6 +6,7 @@ export interface DesignStyle {
 }
 export interface DesignCatalog {
   styles: DesignStyle[];
+  illustrations?: { count:number; categories:string[] };
   layout_modes: { id: LayoutMode; name: string; description: string }[];
   densities: { id: ContentDensity; name: string; description: string }[];
 }

@@ -7,8 +7,8 @@ Folio 是原 PPTMaker 项目的新品牌。公开首页介绍功能、风格、�
 ## 现在可以做什么
 
 - 注册、登录、退出与修改密码；每个账号拥有独立的演示、附件、资料、用量和额度。
-- 输入文字，点击选择或将 PDF、DOCX、Markdown、TXT 拖入工作台页面；单文件最大 10 MiB。
-- 在“创作方案”按会员权益选择页数（系统上限 50）、受众、16 种演示风格、4 种编排、3 档内容密度及结构选项；可补充制作要求。
+- 输入文字，选择、拖入或 Ctrl+V 粘贴 PDF、DOCX、PPTX、Markdown、TXT、CSV 与图片到创作页；单文件最大 10 MiB，截图可提取中英文文字。
+- 在“创作方案”按会员权益选择页数（系统上限 50）、受众、16 种演示风格、4 种编排、3 档内容密度及结构选项；可开启或关闭自动配图，补充制作要求。
 - 自动整理材料、规划大纲、并行制作、检查排版、导出可编辑 `.pptx`；逐页查看预览、正文与演讲备注，点击按钮下载；完成后不会自动下载。
 - 在工作空间搜索、排序、收藏、重命名、添加标签、归档与恢复历史演示；打开已完成演示直接预览和下载，不重新调用模型。
 - 管理服务端保存的个人资料、默认创作方案；查看管理员配置的会员权益、真实 Token 用量、缓存命中和月度输出预算。
@@ -27,9 +27,9 @@ Folio 是原 PPTMaker 项目的新品牌。公开首页介绍功能、风格、�
 
 ![Folio 制作工作台](docs/images/workbench.png)
 
-**创作方案**：16 种视觉风格、编排方式与内容密度，紧凑列表配合选中样式预览；共享纸白 / 浅绿下拉菜单与页数加减控件，支持键盘操作。
+**创作方案**：默认自动分析主题，也可手动选择16种视觉风格、编排方式与内容密度，紧凑列表配合选中样式预览；共享纸白 / 浅绿下拉菜单与页数加减控件，支持键盘操作。
 
-![Folio 创作方案](docs/images/creative-direction.png)
+![Folio 创作方案](docs/images/creative-direction-images.png)
 
 <details>
 <summary>查看统一控件的展开状态</summary>
@@ -39,6 +39,10 @@ Folio 是原 PPTMaker 项目的新品牌。公开首页介绍功能、风格、�
 ![Folio 手机下拉菜单](docs/images/folio-controls-mobile.png)
 
 </details>
+
+**自动配图**：内置 42 张精选主题照片，AI 依据每页内容选图，图片使用独立区域、保持比例裁剪。密集内容、图表、表格与对比页优先保留文字和数据；来源与许可随页面备注导出。[查看图片清单](docs/IMAGE_SOURCES.md)。
+
+![Folio 主题配图示例](docs/images/illustrated-forest.png)
 
 **演示预览**：按页查看，完成后点击“下载 PowerPoint”。
 
@@ -240,3 +244,67 @@ npm run build
 - [测试与验收](TESTING.md)
 
 目前不包含在线支付、邮件验证 / 密码找回、扫描 PDF OCR、外部 PPTX 母版导入和浏览器内完整幻灯片编辑。PNG 是轻量预览，PowerPoint 字体替换、原生图表轴线与表格细节可能产生差异。支持多用户，生成任务仍需单个后端 worker；生产使用 HTTPS、明确 Origin 和持久存储，详见部署说明。
+
+
+## 自动主题与问题沟通
+
+默认“自动”会结合内容、受众和语气选择实际主题，和需求整理共用一次模型调用。生成后可查看主题名称与选择依据；仍可手动选定16种风格。
+
+用户侧栏“与 Folio 沟通”支持文字、图片、拖入或粘贴截图。管理员在“用户沟通”查看未读、历史图文，回复并跟进处理状态；在线时双方会收到站内消息提示。每条最多4000字、3个附件；PNG / JPEG / WebP 图片每张5 MiB，其他文件每个10 MiB。支持选择、页面内拖放与 Ctrl+V 粘贴，图片预览、文件点击下载。历史与已读位置保留，没有邮件或离线推送。
+
+管理员还可在“活动记录 → 生成记录 → 查看演示”预览用户生成的页面、查看正文与备注，并点击下载已完成的 PPTX。管理访问单独校验和审计，普通用户的文件仍互相隔离。
+
+![Folio 用户沟通](docs/images/support-user.png)
+
+![Folio 管理员演示预览](docs/images/admin-generation-preview.png)
+
+
+<details>
+<summary>查看手机图文沟通</summary>
+
+![Folio 手机沟通页](docs/images/support-mobile.png)
+
+![Folio 手机管理沟通](docs/images/support-admin-mobile.png)
+
+</details>
+
+
+创作页粘贴截图、沟通页的图文与文档附件（隔离测试账号，真实页面）：
+
+![创作参考资料](docs/images/creative-reference-paste.png)
+
+![沟通附件](docs/images/support-attachments.png)
+
+![手机沟通附件](docs/images/support-attachments-mobile.png)
+
+## 公告
+
+管理员从侧边栏「公告管理」创建和预览草稿，再发布或撤回，可设置展示时长。普通用户登录后自动看到有效公告；勾选「当日不再展示」后，同账号当天再次登录、刷新或更换设备都不再展示，次日恢复（北京时间）。没有发布的公告不会出现占位消息。
+
+![Folio 公告管理](docs/images/admin-announcements.png)
+
+![Folio 用户公告](docs/images/user-announcement.png)
+
+<details>
+<summary>查看手机公告页面</summary>
+
+![Folio 手机公告管理](docs/images/admin-announcements-mobile.png)
+
+![Folio 手机用户公告](docs/images/user-announcement-mobile.png)
+
+</details>
+
+## 导航与轻量图片
+
+手机顶部显示 Folio Logo、当前页面和紧凑导航，直接切换作品/方案/沟通/个人中心，滚动时保留导航入口；桌面与手机共享墨绿/浅绿按钮。浏览器标签标题统一为英文。参考图和沟通图上传前自动压缩，消息用轻量缩略图展示，点击查看大图；文档附件保持原样。
+
+![Folio 手机顶部栏](docs/images/mobile-topbar.png)
+
+<details>
+<summary>查看手机导航与桌面按钮</summary>
+
+![Folio 手机管理导航](docs/images/mobile-navigation.png)
+
+![Folio 共享按钮](docs/images/shared-buttons-desktop.png)
+
+</details>

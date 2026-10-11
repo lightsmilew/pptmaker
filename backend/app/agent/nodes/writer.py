@@ -9,7 +9,8 @@ from ...contracts.json_utils import extract_json_from_text
 from ...contracts.structured_llm import StructuredLLMCaller
 
 
-WRITER_SYSTEM = """你只负责输入最后一个page对象指定的这一页，不是整份PPT。
+WRITER_SYSTEM = """用户要求的配图、风格、页数等制作指令不是正文观点，不能将其作为介绍内容。
+你只负责输入最后一个page对象指定的这一页，不是整份PPT。
 reference是整篇参考材料，其中的页码和制作指令不能覆盖当前page的type、title和points。
 将当前页大纲写成清晰、准确、适合演示的内容。只返回紧凑JSON对象。
 格式：{"items":[["短标题","解释"]]}；需要讲稿时可加notes。

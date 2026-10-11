@@ -69,6 +69,29 @@ def wrap(text, width, size, bold=False, font_name=FONT_NAME):
     return lines
 
 
+def balanced_cover_title(text, width, size, font_name=FONT_NAME):
+    """Prefer a phrase boundary to a single orphan character on photo covers."""
+    text = str(text)
+    if '\n' in text or len(wrap(text, width, size, True, font_name)) != 2:
+        return text
+    selected = font(size, True, font_name)
+    candidates = []
+    for cut in range(max(1,len(text)//3), min(len(text),len(text)*2//3+1)):
+        left,right = text[:cut],text[cut:]
+        lengths = [selected.getlength(left),selected.getlength(right)]
+        if max(lengths) > width*DPI:
+            continue
+        phrase = left[-1] in '，：、— ' or right[0] in '与和'
+        # Latin words remain intact; Chinese may split at a balanced character boundary.
+        if not phrase and not ('\u4e00' <= left[-1] <= '\u9fff' and '\u4e00' <= right[0] <= '\u9fff'):
+            continue
+        candidates.append((not phrase, abs(lengths[0]-lengths[1]), cut))
+    if not candidates:
+        return text
+    cut = min(candidates)[2]
+    return text[:cut]+'\n'+text[cut:]
+
+
 def text_element(name, text, x, y, w, h, size=20, color="#202B26", bold=False, minimum=16, font_name=FONT_NAME):
     size = float(size)
     while size > minimum:
@@ -195,6 +218,26 @@ def template_layout(page_type, count=3, subtitle=True, suggested="", *,
                 placeholders=[dict(name=n, type=t, x=x, y=y, w=w, h=h) for n,t,x,y,w,h in regions])
 
 
+def illustrated_layout(page_type, subtitle=True, page_index=0):
+    """Photo regions never sit beneath text; narrative body gets a generous column."""
+    if page_type in ('cover', 'thankyou'):
+        regions = [('title','title',.85,1.8,6.0,2.0), ('subtitle','text',.85,4.15,5.95,1.3),
+                   ('theme_photo','image',7.45,.65,5.0,6.15)]
+        kind = 'photo_cover'
+    else:
+        top = 2.6 if subtitle else 2.2
+        photo_left = page_index % 2 == 0
+        image_x, text_x = (.85,6.0) if photo_left else (8.05,.85)
+        regions = [('title','title',.85,.6,11.6,1.2),
+                   ('theme_photo','image',image_x,top,4.4,6.65-top),
+                   ('content','text',text_x,top,6.45,6.65-top)]
+        if subtitle:
+            regions.insert(1,('subtitle','text',.85,1.82,11.5,.5))
+        kind = 'photo_left' if photo_left else 'photo_right'
+    return dict(layout_id='folio-'+kind,layout_type=kind,cover_variant='photo',template_version=4,
+                placeholders=[dict(name=n,type=t,x=x,y=y,w=w,h=h) for n,t,x,y,w,h in regions])
+
+
 def build_scene(page, theme=None):
     page = normalize_page(page)
     theme = theme or get_theme()
@@ -202,6 +245,12 @@ def build_scene(page, theme=None):
     layout = (config.get("layouts") or [None])[0]
     items = content_items(page)
     page_type = page.get("page_type", "content")
+    from .photo_library import crop_photo
+    photo_id = page.get('image_id')
+    # A removed/corrupt asset falls back to a full text layout, including on old exports.
+    if layout and any(p.get('type') == 'image' for p in layout.get('placeholders', [])):
+        if crop_photo(photo_id, 8, 8) is None:
+            layout = template_layout(page_type, len(items), bool(page.get('subtitle')))
     # Missing evidence should use the full text canvas, not an empty chart or
     # table with explanations squeezed into a narrow side column.
     if page_type in ("chart", "table") and not valid_evidence(page_type, page.get(page_type+"_data")):
@@ -219,7 +268,9 @@ def build_scene(page, theme=None):
         elements.append(dict(kind="rect", name=name, x=x,y=y,w=w,h=h,color=color))
     if page_type in ("cover", "thankyou"):
         variant = layout.get("cover_variant", "edge")
-        if variant == "split":
+        if variant == 'photo':
+            rect('cover_rule', .85, 1.35, .65, .055, accent)
+        elif variant == "split":
             rect("cover_panel", 9.25, 0, 4.08, HEIGHT, accent)
             rect("cover_panel_line", 9.85, 1.15, 2.85, .03, theme["background"])
             rect("cover_panel_line_2", 9.85, 6.25, 2.85, .03, theme["background"])
@@ -257,8 +308,13 @@ def build_scene(page, theme=None):
     for ph in layout["placeholders"]:
         x,y,w,h = (float(ph[k]) for k in ("x","y","w","h"))
         kind, name = ph["type"], ph["name"]
-        if kind == "title":
-            elements.append(text_element(name, page.get("title", ""), x,y,w,h,
+        if kind == 'image':
+            elements.append(dict(kind='image',name=name,x=x,y=y,w=w,h=h,image_id=photo_id))
+        elif kind == "title":
+            title = page.get('title', '')
+            if layout_kind == 'photo_cover':
+                title = balanced_cover_title(title, w, 42, theme.get('fonts', {}).get('title', FONT_NAME))
+            elements.append(text_element(name, title, x,y,w,h,
                                          48 if family == "bold" and page_type == "cover" else 42 if page_type in ("cover", "thankyou") else 30,
                                          ink, True, 24, theme.get("fonts", {}).get("title", FONT_NAME)))
         elif name == "subtitle":
@@ -332,6 +388,11 @@ def render_scene_png(scene, path):
         x,y,w,h = (e[k]*DPI for k in ("x","y","w","h"))
         if e["kind"] == "rect":
             draw.rectangle((x,y,x+w,y+max(1,h)), fill=rgb(e["color"]))
+        elif e['kind'] == 'image':
+            from .photo_library import crop_photo
+            photo = crop_photo(e['image_id'], round(w), round(h))
+            if photo is not None:
+                image.paste(photo, (round(x), round(y)))
         elif e["kind"] == "text":
             selected = font(e["size"],e["bold"],e.get("font_name", FONT_NAME))
             for i,line in enumerate(e["text"].split("\n")):

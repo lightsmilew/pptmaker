@@ -1,4 +1,5 @@
 import type { Account } from '@/types/workspace';
+import type { Announcement, AnnouncementInput } from './announcements';
 
 export interface AdminSession { account: Account; csrf_token: string }
 export interface Plan { tier: string; name: string; description: string; monthly_output_limit: number; max_pages: number; concurrency: number }
@@ -13,6 +14,7 @@ export interface Generation { id: string; email: string; title: string; status: 
 export interface Paged<T> { items: T[]; total: number; page: number; page_size: number }
 let csrf = ''; let version = 0;
 export function setAdminCsrf(value: string) { if (value !== csrf) version++; csrf = value; }
+export function getAdminRequestState() { return { csrf,version }; }
 async function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   const ticket = version;
   const response = await fetch('/api/v1/admin'+path, { method, credentials:'same-origin', headers:{ 'Content-Type':'application/json', 'X-Folio-Request':'1', ...(csrf ? { 'X-CSRF-Token':csrf } : {}) }, ...(body === undefined ? {} : { body:JSON.stringify(body) }) });
@@ -26,6 +28,11 @@ async function request<T>(path: string, method = 'GET', body?: unknown): Promise
 }
 const query = (args: Record<string,string | number>) => '?'+new URLSearchParams(Object.entries(args).map(([k,v]) => [k,String(v)]));
 export const adminApi = {
+  announcements: (status = 'all', page = 1) => request<Paged<Announcement>>('/announcements'+query({ status,page })),
+  createAnnouncement: (data: AnnouncementInput) => request<Announcement>('/announcements','POST',data),
+  updateAnnouncement: (id: string, data: AnnouncementInput) => request<Announcement>('/announcements/'+encodeURIComponent(id),'PATCH',data),
+  publishAnnouncement: (id: string) => request<Announcement>('/announcements/'+encodeURIComponent(id)+'/publish','POST'),
+  withdrawAnnouncement: (id: string) => request<Announcement>('/announcements/'+encodeURIComponent(id)+'/withdraw','POST'),
   session: () => request<AdminSession>('/session'),
   login: (email: string, password: string) => request<AdminSession>('/login','POST',{ email,password }),
   logout: () => request<void>('/logout','POST'),
@@ -44,4 +51,11 @@ export const adminApi = {
   usage: (period: string) => request<UsageReport>('/usage'+query({ period })),
   records: (kind: string, q: string, page: number) => request<Paged<Activity>>('/records'+query({ kind,q,page })),
   generations: (q: string, page: number) => request<Paged<Generation>>('/generations'+query({ q,page })),
+  generation: (id: string) => request<GenerationDetail>('/generations/'+encodeURIComponent(id)),
 };
+
+export interface GenerationDetail extends Omit<Generation,'pages'> {
+  style: string; download_url: string | null;
+  style_selection?: { mode:string; style:string; reason:string };
+  pages: { page_id:string; title:string; status:string; preview_url:string | null; content:{ bullet_points?:string[]; speaker_notes?:string } }[];
+}

@@ -45,6 +45,9 @@ build-backend = "setuptools.build_meta"
 where = ["."]
 include = ["app*"]
 
+[tool.setuptools.package-data]
+app = ["assets/photos/*.jpg", "assets/photos/*.json"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"

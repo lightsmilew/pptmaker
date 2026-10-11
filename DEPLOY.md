@@ -67,7 +67,7 @@ Nginx 域名、证书路径及生产 Origin 按 `--domain` 渲染。**含证书�
 
 ```bash
 sudo apt update
-sudo apt install -y python3 python3-venv python3-pip nginx openssl fonts-noto-cjk
+sudo apt install -y python3 python3-venv python3-pip nginx openssl fonts-noto-cjk tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-eng
 python3 --version
 sudo systemctl enable --now nginx
 getent ahostsv4 lightsmile.ink
@@ -251,7 +251,7 @@ sudo -u folio /opt/folio/current/.venv/bin/folio-create-admin --env-file /etc/fo
 sudo cat /var/lib/folio/admin-bootstrap.txt
 ```
 
-访问 `https://lightsmile.ink/#/admin/login`，用文件内的账号登录，在“管理账号”修改初始密码，然后移除该凭据文件。管理页面：概览、账号管理、会员权益、模型与环境、用量与额度、活动记录。普通用户 Cookie 与管理 Cookie 分开，管理接口需要管理员身份及 CSRF 校验。
+访问 `https://lightsmile.ink/#/admin/login`，用文件内的账号登录，在“管理账号”修改初始密码，然后移除该凭据文件。管理页面：概览、账号管理、会员权益、模型与环境、用量与额度、活动记录、用户沟通。普通用户 Cookie 与管理 Cookie 分开，管理接口需要管理员身份及 CSRF 校验。
 
 `.env` 修改需要 `/etc/folio/runtime` 可写，以及 systemd 的 `ReadWritePaths=/var/lib/folio /etc/folio/runtime`。目录归 folio、权限 0700，文件 0600；不要开放 `/etc/folio/tls` 或整个 `/etc/folio` 的写权限。CLI 的 `--env-file` 自动指定管理页使用的配置文件。模型参数保存后立即应用，正在制作时拒绝修改；数据库、文件目录、来源白名单和 HTTPS 安全设置仍需离线编辑并重启服务。配置页的密钥永不回传，普通页面不能读取配置。
 
@@ -318,7 +318,7 @@ sudo systemctl start folio
 | 证书 / 配置错误 | nginx -t；私钥权限、证书路径、SAN、日期与中间证书链 |
 | WS 403 / 登录失效 | 域名与 HTTPS Origin 完全一致；Secure Cookie、Host / Origin 未改写 |
 | WS 空闲后断开 | Upgrade / Connection 和读写超时；重连应恢复后台状态 |
-| 上传 413 | Nginx 11m 与后端 10 MiB 文件上限 |
+| 上传 413 | Nginx 32m；创作资料10 MiB；沟通图片5 MiB / 文件10 MiB，总共最多3个附件 |
 | API 收到 HTML | /api 被前端回退覆盖；proxy_pass 不加尾部斜杠 |
 | 中文预览方框 | fonts-noto-cjk 与字体可读性，安装后重启 |
 | 空历史 / 下载 404 | 绝对 FOLIO_DB / STORAGE_PATH、所有权及文件是否被移动 |
@@ -347,3 +347,30 @@ sudo /snap/bin/certbot renew --dry-run
 ## lightsmile.ink 实际部署
 
 2026-10-09 已通过 SSH 部署到 Ubuntu 22.04 / Python 3.10.12。公网入口为 [Folio](https://lightsmile.ink)，独立管理员入口为 [管理中心](https://lightsmile.ink/#/admin/login)。当前安装目录、维护命令、验收结果与证书期限见 [运行记录](docs/OPERATIONS.md)。凭据和真实 API Key 不写入文档或发布包。
+
+
+### 图文沟通与在线通知
+
+新版安装包包含支持消息表；应用首次访问时幂等创建，不修改已有账号和历史演示。继续备份完整 SQLite 数据库与 storage（包括 support 图片目录）。Nginx 的 `/api/` 代理关闭缓冲以即时发送 SSE；API 也返回 `X-Accel-Buffering: no`。保留 Cookie、Origin 转发，勿把管理预览或沟通图片 alias 为静态目录。`client_max_body_size 32m` 容纳3个10 MiB文件及 multipart 字段，后端仍逐个校验图片5 MiB / 其他文件10 MiB。
+
+验收时用隔离账号分别登录用户端与独立管理端：发送图文、确认管理员离线收件、互发消息、离开沟通页验证站内提示、重新打开确认未读清零。管理端在活动记录的生成记录查看预览并显式下载，普通账号访问管理 URL 应401，其他用户访问图片应404。SSE 连接每2秒同步数据库状态；断线自动重连，注销或撤销会话会结束连接。站内通知不等于离线设备推送。
+
+
+安装版 `folio-server` 将优雅关闭等待限制为10秒，避免在线 SSE 长连接无限阻塞维护重启。更新前仍应确认没有演示制作任务；超时会终止未关闭的连接，浏览器会自动重连。
+
+
+### 截图与文档粘贴
+
+安装依赖步骤已包含 Tesseract 和 `chi_sim` / `eng` 数据。用 `tesseract --list-langs` 确认两个语言；参考截图的中英文 OCR 在后端本机运行，不增加模型调用。Windows 开发安装官方文档推荐的 Tesseract 构建，加入 PATH，或通过进程环境 `TESSERACT_CMD` 指向可执行文件；默认也检测 Program Files/Tesseract-OCR。未安装、识别失败或超时时图片仍可上传，界面提示补充要求。参见 [Tesseract 安装说明](https://tesseract-ocr.github.io/tessdoc/Installation.html)。
+
+备份 storage/support 的 `.jpg` 与 `.bin` 文件和完整 SQLite；新附件表幂等创建，旧图片消息继续有效。附件下载只走用户/管理鉴权接口，不公开 support 目录。SSE 连接长期存在，安装 CLI 的优雅关闭上限10秒，发布后核对服务与 HTTPS health。
+
+### 主题图库与公告随包部署
+
+后端 wheel 内包含 `app/assets/photos/catalog.json` 与42张 JPEG，安装时一并解包；运行时不需要联网下载图片，也无需图片搜索密钥。不得删除该目录。来源与许可随包文档 `docs/IMAGE_SOURCES.md`，原图署名同时写入 PPTX 备注。公告表与每日隐藏记录自动在原有 Folio SQLite 数据库中创建，继续备份 `/var/lib/folio`；无需另建数据库或手工迁移旧数据。新功能不要求增加 Nginx 路径或改变现有安全 Cookie/CSRF 设置。
+
+当前线上版本为 `folio-0.1.0-r13-mobile-controls-images`，r13 备份 `/var/backups/folio/20261011-r13`，旧版本 r12 保留可回滚。42张图库、公告权限与每日记录已通过独立安装和数据库验收；正式服务健康，既有演示和账号保留，详见 docs/OPERATIONS.md。
+
+### 轻量图片与移动顶栏
+
+r13安装包包含Logo顶部导航、英文标签标题和统一按钮。参考图/沟通图上传前按用途压缩；后端仍负责验证图片与消息权限。沟通图片新增`.thumb.webp`派生文件，与原`.jpg`/附件`.bin`及SQLite一起备份；旧消息第一次授权查看时自动补建，无需迁移表结构。图片private,no-cache/ETag只在鉴权后重用，Nginx不得对/api私有内容配置公共缓存。运行依赖沿用Pillow（含WebP）与Tesseract，无新增服务或密钥。

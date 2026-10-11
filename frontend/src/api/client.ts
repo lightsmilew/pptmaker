@@ -8,17 +8,20 @@
 //   - POST /api/v1/upload/parse        (one-shot file text extraction)
 //   - GET  /storage/{filename}         (static download URL builder)
 
+import { prepareImageUpload } from '@/lib/imageUpload';
 import type {
   PPTProject,
   CreateProjectRequest,
 } from '@/types';
 import type { Account, ProfilePatch, ProjectList, PresentationSummary, WorkspaceOverview } from '@/types/workspace';
 import type { DesignCatalog } from '@/types/design';
+import type { Announcement } from './announcements';
 
 const API_BASE = '/api/v1';
 let csrfToken = '';
 let sessionVersion = 0;
 export function setSessionCsrf(token: string) { if (token !== csrfToken) sessionVersion++; csrfToken = token; }
+export function getSessionRequestState() { return { csrf:csrfToken, version:sessionVersion }; }
 export interface AuthSession { account: Account; csrf_token: string }
 export function sessionExpired() { setSessionCsrf(''); window.dispatchEvent(new Event('folio-session-expired')); }
 
@@ -56,12 +59,15 @@ export interface UploadParseResult {
   filename: string;
   content: string;
   content_preview: string;
+  notice?: string;
   size?: number;
 }
 
 // ==================== REST API surface ====================
 
 export const api = {
+  getAnnouncements: () => request<{ items: Announcement[]; day: string; timezone: string }>('/announcements'),
+  dismissAnnouncement: (id: string, revision: number) => request<{ ok: boolean; day: string }>('/announcements/'+encodeURIComponent(id)+'/dismiss', { method:'POST', body:JSON.stringify({ revision }) }),
   getDesignCatalog: () => request<DesignCatalog>('/design/catalog'),
   getSession: () => request<AuthSession>('/auth/session'),
   login: (email: string, password: string) => request<AuthSession>('/auth/login', { method:'POST',body:JSON.stringify({ email,password }) }),
@@ -86,7 +92,9 @@ export const api = {
   uploadAndParse: async (file: File): Promise<UploadParseResult> => {
     const version = sessionVersion;
     const formData = new FormData();
-    formData.append('file', file);
+    const prepared = await prepareImageUpload(file, 'reference');
+    if (version !== sessionVersion) throw new Error('账号已切换，请重新添加文档');
+    formData.append('file', prepared);
     const response = await fetch(`${API_BASE}/upload/parse`, {
       method: 'POST',
       credentials: 'same-origin',

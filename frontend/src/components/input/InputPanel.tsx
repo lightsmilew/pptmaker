@@ -8,6 +8,7 @@ import { DesignControls } from './DesignControls';
 import type { PPTProjectSpec } from '@/types';
 import { api } from '@/api/client';
 import { useProjectStore } from '@/stores/projectStore';
+import { transferFiles, isReference, referenceAccept } from '@/lib/fileTransfer';
 
 interface InputPanelProps {
   onSubmit: (input: string, spec: PPTProjectSpec) => void;
@@ -20,6 +21,8 @@ interface UploadedFile {
   upload_id: string;
   filename: string;
   size: number;
+  source_name?: string;
+  source_size?: number;
 }
 
 export function InputPanel({ onSubmit, isLoading, mode, maxPages = 50 }: InputPanelProps) {
@@ -47,16 +50,19 @@ export function InputPanel({ onSubmit, isLoading, mode, maxPages = 50 }: InputPa
     const newFiles: UploadedFile[] = [];
     for (const file of batch) {
       if (!mounted.current) break;
-      if (!/\.(pdf|docx|md|markdown|txt)$/i.test(file.name)) { toast.error(`${file.name}：支持 PDF、DOCX、Markdown 和 TXT`); continue; }
+      if (!isReference(file)) { toast.error(`${file.name}：支持 PDF、DOCX、PPTX、Markdown、TXT、CSV 和图片`); continue; }
       if (file.size > 10 * 1024 * 1024) { toast.error(`${file.name}：单文件不能超过 10 MiB`); continue; }
-      if ([...useProjectStore.getState().draftFiles,...newFiles].some(f => f.filename===file.name && f.size===file.size)) { toast('已添加此文档'); continue; }
+      if ([...useProjectStore.getState().draftFiles,...newFiles].some(f => (f.source_name || f.filename)===file.name && (f.source_size ?? f.size)===file.size)) { toast('已添加此文档'); continue; }
       try {
         const result = await api.uploadAndParse(file);
         if (!mounted.current) break;
+        if (result.notice) toast(result.notice);
         newFiles.push({
           upload_id: result.upload_id,
           filename: result.filename,
           size: result.size ?? file.size,
+          source_name: file.name,
+          source_size: file.size,
         });
       } catch (err) {
         if (mounted.current) toast.error(`${file.name}：${(err as Error).message}`);
@@ -74,9 +80,10 @@ export function InputPanel({ onSubmit, isLoading, mode, maxPages = 50 }: InputPa
     const enter = (e: DragEvent) => { if (!isFile(e)) return; e.preventDefault(); dragDepth.current++; if (!isLoading) setDragActive(true); };
     const over = (e: DragEvent) => { if (!isFile(e)) return; e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect=isLoading ? 'none' : 'copy'; };
     const leave = (e: DragEvent) => { if (!isFile(e)) return; dragDepth.current=Math.max(0,dragDepth.current-1); if (!dragDepth.current) setDragActive(false); };
-    const drop = (e: DragEvent) => { if (!isFile(e) && !e.dataTransfer?.files.length) return; e.preventDefault(); reset(); if (isLoading) { toast('正在制作，请完成后再添加文档'); return; } handleFileUpload(e.dataTransfer?.files || null); };
-    document.addEventListener('dragenter',enter); document.addEventListener('dragover',over); document.addEventListener('dragleave',leave); document.addEventListener('drop',drop); window.addEventListener('dragend',reset); window.addEventListener('blur',reset);
-    return () => { document.removeEventListener('dragenter',enter); document.removeEventListener('dragover',over); document.removeEventListener('dragleave',leave); document.removeEventListener('drop',drop); window.removeEventListener('dragend',reset); window.removeEventListener('blur',reset); };
+    const drop = (e: DragEvent) => { if (!isFile(e) && !e.dataTransfer?.files.length) return; e.preventDefault(); reset(); if (isLoading) { toast('正在制作，请完成后再添加文件'); return; } handleFileUpload(e.dataTransfer ? transferFiles(e.dataTransfer) : null); };
+    const paste = (e: ClipboardEvent) => { const files=e.clipboardData ? transferFiles(e.clipboardData) : []; if (!files.length) return; e.preventDefault(); if(isLoading) { toast('正在制作，请完成后再添加文件'); return; } handleFileUpload(files); };
+    document.addEventListener('dragenter',enter); document.addEventListener('dragover',over); document.addEventListener('dragleave',leave); document.addEventListener('drop',drop); document.addEventListener('paste',paste); window.addEventListener('dragend',reset); window.addEventListener('blur',reset);
+    return () => { document.removeEventListener('dragenter',enter); document.removeEventListener('dragover',over); document.removeEventListener('dragleave',leave); document.removeEventListener('drop',drop); document.removeEventListener('paste',paste); window.removeEventListener('dragend',reset); window.removeEventListener('blur',reset); };
   }, [mode,isLoading,handleFileUpload]);
 
   const removeFile = (index: number) => {
@@ -97,7 +104,7 @@ export function InputPanel({ onSubmit, isLoading, mode, maxPages = 50 }: InputPa
 
   return (
     <div className={mode === 'content' ? 'brief-panel' : 'settings-panel'}>
-      {dragActive && mode==='content' && <div className="workbench-drop-overlay" role="status"><FileUp size={36} strokeWidth={1.4} /><strong>松开，把文档放进来。</strong><span>PDF / DOCX / Markdown / TXT · 单文件最大 10 MiB</span></div>}
+      {dragActive && mode==='content' && <div className="workbench-drop-overlay" role="status"><FileUp size={36} strokeWidth={1.4} /><strong>松开，把参考资料放进来。</strong><span>文档、演示或图片 · 单文件最大 10 MiB</span></div>}
       {/* Main Input Card */}
       {mode === 'content' && <Card className="brief-card">
         <div className="space-y-6">
@@ -131,13 +138,13 @@ export function InputPanel({ onSubmit, isLoading, mode, maxPages = 50 }: InputPa
               ref={fileInputRef}
               type="file"
               className="hidden"
-              accept=".pdf,.docx,.md,.txt,.markdown"
+              accept={referenceAccept}
               multiple
               disabled={isLoading}
               onChange={(e) => { handleFileUpload(e.target.files); e.target.value=''; }}
             />
             <FileUp size={19} />
-            <span><strong>{isUploading ? '正在上传和解析…' : '添加参考文档'}</strong><small>点击选择，或将文档拖入页面 · 最大 10 MiB</small></span>
+            <span><strong>{isUploading ? '正在读取参考资料…' : '添加参考资料'}</strong><small>选择、拖入或 Ctrl+V 粘贴文档与图片 · 最大 10 MiB</small></span>
             <span className="upload-plus">+</span>
           </div>
 

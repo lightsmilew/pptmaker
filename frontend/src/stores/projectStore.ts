@@ -43,7 +43,7 @@ function deepMerge<T extends Record<string, any>>(target: T, source: Partial<T>)
 
 export type CommandDispatcher = (cmd: WSCommand) => void;
 
-export interface DraftFile { upload_id?: string; filename: string; size: number }
+export interface DraftFile { upload_id?: string; filename: string; size: number; source_name?:string; source_size?:number }
 
 interface ProjectState {
   draftInput: string;
@@ -115,7 +115,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   setDraftInput: (value) => set(state => ({ draftInput: typeof value === 'function' ? value(state.draftInput) : value })),
   draftFiles: [],
   setDraftFiles: (value) => set(state => ({ draftFiles: typeof value === 'function' ? value(state.draftFiles) : value })),
-  draftSpec: { topic: '', page_count: 8, style: '商务简约', audience: '通用', needs_cover: true, needs_toc: true, needs_summary: true, needs_chart: false },
+  draftSpec: { topic: '', page_count: 8, style: '自动', audience: '通用', needs_cover: true, needs_toc: true, needs_summary: true, needs_chart: false, auto_images: true },
   setDraftSpec: (patch) => set((state) => ({ draftSpec: { ...state.draftSpec, ...patch } })),
   project: null,
   isLoading: false,

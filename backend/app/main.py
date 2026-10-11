@@ -1,6 +1,7 @@
 """FastAPI application entry point."""
 
 import os
+import re
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +13,9 @@ from .api.websocket import websocket_handler
 from .api.auth import router as auth_router, allowed_origins
 from .api.files import router as files_router
 from .api.admin import router as admin_router
+from .api.admin_presentations import router as admin_presentations_router
+from .api.support import router as support_router, admin_router as admin_support_router
+from .api.announcements import router as announcement_router, admin_router as admin_announcement_router
 
 
 @asynccontextmanager
@@ -49,13 +53,21 @@ app.include_router(files_router)
 app.include_router(router)
 app.include_router(workspace_router)
 app.include_router(admin_router)
+app.include_router(admin_presentations_router)
+app.include_router(support_router)
+app.include_router(admin_support_router)
+app.include_router(announcement_router)
+app.include_router(admin_announcement_router)
 
 
 @app.middleware("http")
 async def private_response_headers(request, call_next):
     response = await call_next(request)
     if request.url.path.startswith(("/api/", "/storage/")):
-        response.headers["Cache-Control"] = "no-store"
+        # Image responses can revalidate their private cache after session/owner checks.
+        revalidated_image = request.method in {"GET","HEAD"} and response.status_code in {200,304} and response.headers.get("Cache-Control") == "private, no-cache" and re.fullmatch(r"/api/v1/(?:admin/)?support/images/img_[a-f0-9]{32}(?:/thumbnail)?",request.url.path)
+        if not revalidated_image:
+            response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
     return response
 

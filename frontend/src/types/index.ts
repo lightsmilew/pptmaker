@@ -169,6 +169,7 @@ export interface PPTProjectSpec {
   needs_toc?: boolean;
   needs_summary?: boolean;
   needs_chart?: boolean;
+  auto_images?: boolean;
   notes?: string;
 }
 
@@ -202,6 +203,7 @@ export interface GlobalReviewResult {
 }
 
 export interface PPTProject {
+    style_selection?: { mode:'auto'; style:string; reason:string; fallback?:boolean } | null;
   id: string;
   spec: PPTProjectSpec;
   user_input?: string;

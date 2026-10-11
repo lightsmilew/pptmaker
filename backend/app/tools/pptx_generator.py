@@ -28,8 +28,11 @@ class PPTXGenerator:
             scene = build_scene(data, theme or get_theme())
             slide = prs.slides.add_slide(prs.slide_layouts[6])
             self._render_scene(slide, scene)
-            if data.get("speaker_notes"):
-                slide.notes_slide.notes_text_frame.text = data["speaker_notes"]
+            from .photo_library import credit
+            credits = [credit(e['image_id']) for e in scene['elements'] if e['kind'] == 'image']
+            notes = '\n\n'.join(part for part in [data.get('speaker_notes', ''), *credits] if part)
+            if notes:
+                slide.notes_slide.notes_text_frame.text = notes
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         prs.save(output_path)
         return output_path
@@ -51,6 +54,11 @@ class PPTXGenerator:
                 shape.fill.solid()
                 shape.fill.fore_color.rgb = RGBColor(*rgb(e["color"]))
                 shape.line.fill.background()
+            elif e['kind'] == 'image':
+                from .photo_library import picture_stream
+                stream = picture_stream(e['image_id'], e['w'], e['h'])
+                if stream is not None:
+                    slide.shapes.add_picture(stream, x, y, w, h)
             elif e["kind"] == "text":
                 box = slide.shapes.add_textbox(x,y,w,h)
                 frame = box.text_frame

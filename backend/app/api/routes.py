@@ -67,6 +67,8 @@ async def create_project(request: CreateProjectRequest, user_id: str = Depends(r
     for upload in files:
         if upload["content"] and upload["content"] not in user_input:
             user_input += f'\n\n【文件内容 - {upload["filename"]}】\n{upload["content"]}'
+    if files and not user_input.strip():
+        raise HTTPException(422, "参考图片未识别出文字，请先补充演示主题或制作要求")
     return WorkflowRunner.create_project(
         spec=request.spec,
         user_input=user_input,
@@ -87,7 +89,8 @@ async def list_projects(q: str = "",status: Literal["all","draft","completed","f
 
 # ==================== File Upload (single shot) ====================
 
-ALLOWED_EXTENSIONS = {".pdf", ".docx", ".md", ".txt", ".markdown"}
+IMAGE_EXTENSIONS = {'.png','.jpg','.jpeg','.webp'}
+ALLOWED_EXTENSIONS = {".pdf", ".docx", ".pptx", ".md", ".txt", ".markdown", ".csv"} | IMAGE_EXTENSIONS
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 
 
@@ -97,7 +100,7 @@ def _extract_text(content: bytes, filename: Optional[str]) -> str:
         return content.decode("utf-8", errors="ignore")
 
     lowered = filename.lower()
-    if lowered.endswith((".md", ".markdown", ".txt")):
+    if lowered.endswith((".md", ".markdown", ".txt", ".csv")):
         return content.decode("utf-8", errors="ignore")
 
     if lowered.endswith(".docx"):
@@ -109,6 +112,21 @@ def _extract_text(content: bytes, filename: Optional[str]) -> str:
             return "\n".join(p.text for p in doc.paragraphs)
         except ImportError:
             raise HTTPException(status_code=500, detail="请安装 python-docx 库来解析 Word 文档")
+
+    if lowered.endswith('.pptx'):
+        import io
+        from pptx import Presentation
+        slides = Presentation(io.BytesIO(content)).slides
+        texts = []
+        for index,slide in enumerate(slides,1):
+            lines = []
+            for shape in slide.shapes:
+                if shape.has_text_frame:
+                    lines.append(shape.text)
+                elif shape.has_table:
+                    lines.extend(' | '.join(cell.text for cell in row.cells) for row in shape.table.rows)
+            texts.append(f'第{index}页\n'+'\n'.join(lines))
+        return '\n\n'.join(texts)
 
     if lowered.endswith(".pdf"):
         try:
@@ -131,21 +149,29 @@ async def upload_and_parse(file: UploadFile = File(...), user_id: str = Depends(
         if ext not in ALLOWED_EXTENSIONS:
             raise HTTPException(
                 status_code=400,
-                detail=f"不支持的文件类型: {ext}。支持的格式: PDF, Word, Markdown, TXT",
+                detail=f"不支持的文件类型: {ext}。支持 PDF、DOCX、PPTX、Markdown、TXT、CSV、PNG、JPEG 和 WebP",
             )
 
     content = await file.read(MAX_FILE_SIZE + 1)
     if len(content) > MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail="文件过大，最大支持10MB")
 
+    notice = ''
+    is_image = os.path.splitext(file.filename or '')[1].lower() in IMAGE_EXTENSIONS
     try:
         import asyncio
-        text = await asyncio.to_thread(_extract_text, content, file.filename)
+        if is_image:
+            from ..tools.reference_images import extract_image_text
+            text,notice = await asyncio.to_thread(extract_image_text,content)
+        else:
+            text = await asyncio.to_thread(_extract_text, content, file.filename)
     except HTTPException:
         raise
     except Exception as exc:
+        if is_image and isinstance(exc,ValueError):
+            raise HTTPException(400,str(exc)) from exc
         raise HTTPException(400, "文件无法解析，请确认文件未损坏；扫描 PDF 需要先转成可读取的文本") from exc
-    if not text.strip():
+    if not text.strip() and not is_image:
         raise HTTPException(400, "未读取到文本，扫描 PDF 请先转换为文本")
     from pathlib import Path
     import uuid
@@ -166,4 +192,5 @@ async def upload_and_parse(file: UploadFile = File(...), user_id: str = Depends(
         "content": text,
         "content_preview": text[:500],
         "size": len(content),
+        "notice": notice,
     }

@@ -30,7 +30,7 @@ def serve(argv=None):
     _environment(args.env_file, parser)
     import uvicorn
     uvicorn.run("app.main:app", host=args.host, port=args.port, workers=1, reload=False,
-                proxy_headers=True, forwarded_allow_ips="127.0.0.1")
+                proxy_headers=True, forwarded_allow_ips="127.0.0.1", timeout_graceful_shutdown=10)
 
 
 def manage_user(argv=None):

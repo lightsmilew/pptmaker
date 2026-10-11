@@ -120,6 +120,7 @@ def state_to_project(state: AgentState) -> Dict[str, Any]:
     return {
         "id": project_id,
         "spec": spec,
+        "style_selection": state.get("style_selection"),
         "user_input": state.get("user_input", ""),
         "uploaded_files": state.get("uploaded_files", []),
         "status": status_value,
